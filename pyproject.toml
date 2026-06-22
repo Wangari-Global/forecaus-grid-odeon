@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forecaus-grid-odeon"
+version = "0.1.0"
+description = "Causal-augmented, transparent SS-level load forecasting + federated learning for the ODEON Open Call (Challenge 4). Shares its core with forecaus-grid."
+requires-python = ">=3.10"
+dependencies = [
+  "pandas", "numpy", "scipy", "matplotlib",
+  "statsmodels",            # SARIMAX baselines
+  "darts[torch]",           # neural forecasting (TFT) + backtesting
+  "dowhy", "econml",        # causal estimation
+  "networkx",               # causal DAG
+  "entsoe-py",              # public proxy data (dev only; ODEON delivers pilot data via API)
+  "requests",
+  "pyarrow",                # parquet cache
+  "pytest",
+]
+
+[project.optional-dependencies]
+notebooks = ["jupyter", "nbconvert", "ipykernel"]
+fl = ["flwr"]               # federated-learning prototype (client side)
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

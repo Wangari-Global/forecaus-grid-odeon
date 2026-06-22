@@ -1,0 +1,11 @@
+data/raw/
+data/processed/
+*.parquet
+# ...but the tiny committed offline sample MUST be tracked.
+!tests/fixtures/
+!tests/fixtures/*.parquet
+__pycache__/
+.venv/
+.env
+.ipynb_checkpoints/
+*.egg-info/
