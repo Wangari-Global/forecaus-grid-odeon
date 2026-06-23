@@ -1,0 +1,15 @@
+metric,value,unit,pi4_budget,within_budget
+device,"Raspberry Pi 4 (Cortex-A72 quad-core @1.5 GHz, 1-4 GB LPDDR4)",,,info
+cores_used,1,cores,,info
+assumed_pi4_slowdown_vs_host,12.0,x,,info
+n_features,12,count,,info
+n_train_obs,144,rows,,info
+artifact_size,0.3545,KiB,64.0,True
+artifact_size_pickle,0.3057,KiB,,info
+peak_workload_mem,0.0661,MiB,50.0,True
+proc_peak_rss,118.5,MiB,,info
+train_time_host,0.4088,ms,,info
+train_time_pi4_est,4.91,ms,1000.0,True
+inference_latency_host,1.0,us,,info
+inference_latency_pi4_est,0.012,ms,5.0,True
+inference_api_latency_host,305.667,us,,info

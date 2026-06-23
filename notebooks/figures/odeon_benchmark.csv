@@ -1,0 +1,7 @@
+dataset,model,role,protocol,MAPE_pct,coverage
+UKPN Smart Meter Consumption - LV Feeder,seasonal_naive,baseline,day-ahead rolling-origin,6.51,0.921
+UKPN Smart Meter Consumption - LV Feeder,sarimax,baseline,day-ahead rolling-origin,11.01,0.933
+UKPN Smart Meter Consumption - LV Feeder,structured_gam,interpretable (non-federated),day-ahead rolling-origin,11.63,0.854
+UKPN Smart Meter Consumption - LV Feeder,structured_gam,local-only,"last-day holdout, per-node",14.43,
+UKPN Smart Meter Consumption - LV Feeder,structured_gam,federated-global,"last-day holdout, per-node",8.59,
+UKPN Smart Meter Consumption - LV Feeder,structured_gam,centralised (pooled),"last-day holdout, per-node",6.41,
