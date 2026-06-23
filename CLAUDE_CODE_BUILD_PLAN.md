@@ -87,3 +87,55 @@ Make this a clean, citable PUBLIC repo (artifact B1) as a CURATED SUBSET, not th
 
 ## Hand-off to the application
 When the must-have slices are done, copy into the ODEON Challenge-4 proposal: the headline SS forecast accuracy + interval coverage and the federated-vs-centralised numbers (from RESULTS.md); the public repo URL; and the TRL claim anchored to etio's production track record. Keep claims honest: public-data relevant-environment validation, TRL 5–6, FL prototype (production adapter in-project).
+
+---
+
+# Phase 2 — Real-data validation & honesty (post-scaffold)
+
+**Why:** Phase-1 produced a complete, reproducible framework + a working FL demonstration, but every headline number came from the **synthetic offline fixtures** (`scripts/make_ss_fixtures.py`) — and the benchmark artifacts were **mislabeled as the real "UKPN Smart Meter Consumption – LV Feeder" dataset**. For ODEON that is two problems: (1) presenting synthetic data under a real dataset's name is a credibility/compliance risk we must remove; (2) synthetic data is TRL-4 (lab), whereas the call wants **TRL 5–6 = validation in a relevant environment**, which needs **real LV/substation data**. These slices fix labeling first, then get real data, then re-run.
+
+**Standing context to add (pin it):**
+> Synthetic fixtures must NEVER be presented as real data or under a real dataset's name. If real data cannot be obtained in a slice, STOP and report exactly which credential/registration is missing — do not silently fall back to fixtures and relabel them. Every result figure must state its data source truthfully. The ENTSO-E API key only unlocks national/transmission ENTSO-E proxy data (the `ingest/` core), NOT substation-level data (`ingest_ss/`).
+
+Order: 12 → 13 (hygiene + honesty, do immediately), then 14 → 15 → 16 → 17 (real-data validation).
+
+### Slice 12 — Repo hygiene: remove sync-conflict duplicates  *(deps: none)*
+```
+Remove the file-sync conflict artifacts that crept in: top-level `.gitignore 2`, `Makefile 2`, `pyproject 2.toml`, `src/forecaus_grid_odeon/cli 2.py`, the empty `src 2/` and `tests 2/` dirs, and every `*<space>N.parquet` / `weather N.parquet` duplicate under data/. Confirm none are git-tracked (they shouldn't be), confirm .gitignore still covers data/ and add a rule for ` [0-9].*` style duplicates if helpful. Acceptance: `git status` clean except intended changes; `python -m compileall -q src` OK; `pytest -q` still green.
+```
+
+### Slice 13 — Truth-in-labeling of current (synthetic) results  *(deps: 12)*
+```
+Make every result artifact state its true source. In scripts/make_notebooks.py (line ~149) STOP inserting the dataset label "UKPN Smart Meter Consumption - LV Feeder" for fixture runs; instead label the source as "SYNTHETIC schema-accurate LV stand-in (tests/fixtures/ss) — illustrative, not real measurements". Regenerate notebooks/figures/odeon_benchmark.csv and notebooks/figures/RESULTS.md so the dataset/source column and the RESULTS.md preamble say SYNTHETIC, with a one-line disclaimer at the top of RESULTS.md. Add the real dataset name back ONLY when a run is actually on real data (Slice 15+). Acceptance: no artifact claims real-data provenance; RESULTS.md carries the synthetic disclaimer; reproduce_headline + guard still pass.
+```
+
+### Slice 14 — Real-data ingestion (fallback ladder)  *(deps: 13)*  ← the gating slice
+```
+Get REAL secondary-substation / LV-feeder demand into data/raw/ss as per-feeder parquet (UTC index, single load_kw column — same contract as ingest_ss.ukpn). Try sources IN ORDER and use the first that yields record-level data without manual login; document which one succeeded in data/README.md (source, span, licence, access date):
+  1) SP Energy Networks "LV Monitoring Aggregated Data" (dataset `lv_monitor`) via the opendatasoft Explore API v2.1 records endpoint (keyless if open).
+  2) UK Power Networks "Smart Meter Consumption - LV Feeder" — only if a token/registered export is available (Ari provides; do NOT assume).
+  3) Low Carbon London household smart-meter data aggregated to feeder level.
+  4) NREL SMART-DS feeders — real-derived but simulated; if used, label as SIMULATED, not measured.
+Add a `make ingest-ss-real` target and a sanity report (feeder count, span, %-missing); require >= a few feeders and >= several weeks of history. If ALL of 1–4 fail (e.g. every source needs credentials), STOP and print exactly what is needed — do NOT relabel fixtures as real. Acceptance: data/raw/ss holds real (or clearly-labelled simulated) multi-feeder series; sanity report printed; data/README.md updated with the true source.
+```
+
+### Slice 15 — Re-run benchmark + improve the model on real data  *(deps: 14)*
+```
+On the real data from Slice 14, re-run the day-ahead SS benchmark and IMPROVE the interpretable structured model so it at least beats seasonal-naive and trends toward the <5% MAPE target (the synthetic 4-day samples are why it currently underperforms): use longer history, the weather join, proper 24h/168h lags, and light tuning — keep it interpretable + edge-deployable. Regenerate odeon_benchmark.csv + RESULTS.md from real data with the REAL dataset name and per-feeder + aggregate MAPE/coverage. Report honestly: if <5% is not reached, state the achieved number and the gap, and whether it beats naive. Acceptance: benchmark on real data, structured model >= naive (or an honest explanation), RESULTS.md reproduced by `make benchmark`/reproduce_headline.
+```
+
+### Slice 16 — Re-run FL + flex + edge on real data  *(deps: 15)*
+```
+Re-run federated training across the real feeders (local vs federated-global vs centralised + cold-start gain), the forecast->flex congestion schedule, and the edge benchmark, all on real data. Regenerate the federated-convergence, forecast-to-flex, and edge figures + the RESULTS.md federated paragraph with real numbers. Keep the parameters-only / no-raw-data-leaves-node assertion test. Acceptance: all three figures + RESULTS.md regenerated from real data; FL still shows a directional gain (report honestly if not).
+```
+
+### Slice 17 — Proposal evidence hand-off  *(deps: 15, 16)*
+```
+Produce a single notebooks/figures/PROPOSAL_NUMBERS.md block containing the final, real-data figures formatted to drop straight into the application's [[BUILD: …]] placeholders: SS forecast MAPE + coverage; federated vs centralised vs local + cold-start; edge-fit; repo URL; and the reproducibility statement. Confirm the public repo is clean (no secrets/data, fixtures clearly synthetic, README Results section = real numbers). Acceptance: PROPOSAL_NUMBERS.md exists with real figures + provenance; repo ready for Ari to push and for the figures to be pasted into 2607_ODEON_Challenge4_application_draft.md.
+```
+
+## Gating note for Ari
+Slice 14 may stop if every real LV source needs credentials. Fastest unlocks: try SPEN `lv_monitor` (keyless) first; if UKPN is preferred, register for portal access and hand CC a token/export. ENTSO-E's key does **not** help here — wrong granularity.
+
+## Maps to the application
+Slices 15–17 fill the `[[BUILD]]` placeholders in `2607_ODEON_Challenge4_application_draft.md` (SS accuracy, federated results, edge-fit, repo URL, reproducibility). Until then those placeholders stay empty; the FL-mechanism and edge results may be cited only with an explicit "synthetic/illustrative, pending real-data validation" caveat.
