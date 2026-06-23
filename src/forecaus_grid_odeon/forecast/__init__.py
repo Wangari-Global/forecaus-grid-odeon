@@ -12,12 +12,14 @@ import pandas as pd
 
 from .baselines import sarimax_forecast, seasonal_naive
 from .intervals import conformal_intervals, conformal_width, make_conformal
+from .structured import StructuredForecaster, make_structured
 
 Model = Callable[[pd.DataFrame, pd.DataFrame, str], pd.DataFrame]
 
 __all__ = [
     "seasonal_naive", "sarimax_forecast", "conformal_intervals", "conformal_width",
     "make_seasonal_naive", "make_sarimax", "make_conformal", "make_tft", "make_linear",
+    "make_structured", "StructuredForecaster",
     "default_models", "benchmark_models", "Model",
 ]
 

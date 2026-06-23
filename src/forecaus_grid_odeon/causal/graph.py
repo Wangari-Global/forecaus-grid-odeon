@@ -62,6 +62,50 @@ def build_dag(treatment: str = TREATMENT, outcome: str = OUTCOME) -> nx.DiGraph:
     return g
 
 
+# ----------------------------------------------------- secondary-substation DAG --
+# Effect of interest at LV/secondary-substation level.
+SS_TREATMENT = "temp_c"
+SS_OUTCOME = "load_kw"
+# Downstream signal (behind-the-meter PV / EV charging interaction proxy). It is
+# an EFFECT of net feeder load, not a cause — included "where present".
+SS_DOWNSTREAM = "pv_ev_proxy"
+_SS_CALENDAR = ["hour_sin", "hour_cos", "is_weekend"]
+
+
+def build_ss_dag(
+    treatment: str = SS_TREATMENT,
+    outcome: str = SS_OUTCOME,
+    *,
+    downstream: bool = True,
+) -> nx.DiGraph:
+    """SS-level causal DAG: ``temperature -> load`` confounded by calendar.
+
+    Edges (cause -> effect)::
+
+        calendar (hour, weekend) -> load        # activity rhythm
+        calendar (hour)          -> temperature # diurnal cycle (the confounder)
+        temperature              -> load        # heating / cooling   (TREATMENT)
+        load                     -> pv_ev_proxy # downstream effect (where present)
+
+    The ``hour -> {temperature, load}`` fork makes time-of-day a genuine
+    confounder of ``temperature -> load`` (so a naive correlation is biased and a
+    backdoor adjustment is required). ``causal_parents(g, "load_kw")`` yields the
+    causal feature set and excludes ``pv_ev_proxy`` (a child/effect, not a cause).
+    """
+    g = nx.DiGraph()
+    for c in _SS_CALENDAR:
+        g.add_edge(c, outcome)
+    g.add_edge("hour_sin", treatment)            # diurnal temperature cycle
+    g.add_edge("hour_cos", treatment)
+    g.add_edge(treatment, outcome)               # the effect we estimate
+    if downstream:
+        g.add_edge(outcome, SS_DOWNSTREAM)       # demand -> PV/EV proxy (effect)
+
+    if not nx.is_directed_acyclic_graph(g):
+        raise ValueError("constructed SS graph is not a DAG")
+    return g
+
+
 def to_dot(graph: nx.DiGraph) -> str:
     """Serialise to a DOT string DoWhy can parse."""
     edges = "\n".join(f'  "{u}" -> "{v}";' for u, v in graph.edges())

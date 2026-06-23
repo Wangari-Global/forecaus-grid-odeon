@@ -146,7 +146,8 @@ def _headline_table(fold_df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("MAPE_break")
 
 
-def make_break_figure(result: dict, break_start: pd.Timestamp, path: str) -> str:
+def make_break_figure(result: dict, break_start: pd.Timestamp, path: str,
+                      *, ylabel: str = "load [MW]") -> str:
     """Headline whitepaper figure: (left) MAPE normal vs break per model,
     (right) the break window — actual load vs each model's forecast."""
     import matplotlib
@@ -174,7 +175,7 @@ def make_break_figure(result: dict, break_start: pd.Timestamp, path: str) -> str
         ax2.plot(df.index, df["yhat"].to_numpy(), lw=1.4, alpha=0.9,
                  color=colors.get(name), label=name)
     ax2.set_title("Break window: forecasts vs actual")
-    ax2.set_ylabel("load [MW]"); ax2.tick_params(axis="x", rotation=30)
+    ax2.set_ylabel(ylabel); ax2.tick_params(axis="x", rotation=30)
     ax2.legend(loc="upper right", fontsize=8)
 
     fig.suptitle("Causal-augmented vs correlational forecasting across a regime change", y=1.02)
