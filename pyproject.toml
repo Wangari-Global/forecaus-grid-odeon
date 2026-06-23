@@ -6,9 +6,24 @@ build-backend = "setuptools.build_meta"
 name = "forecaus-grid-odeon"
 version = "0.1.0"
 description = "Causal-augmented, transparent SS-level load forecasting + federated learning for the ODEON Open Call (Challenge 4). Shares its core with forecaus-grid."
-requires-python = ">=3.10"
+readme = "README.md"
+authors = [{ name = "Ari Joury", email = "ari.joury@wangari.global" }]
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Science/Research",
+]
+# torch / numba (via darts[torch]) ship no cp314 wheels yet; cap so a fresh
+# install lands on a wheel-backed interpreter instead of a doomed source build.
+requires-python = ">=3.10,<3.14"
 dependencies = [
-  "pandas", "numpy", "scipy", "matplotlib",
+  "pandas", "scipy", "matplotlib",
+  # Three-way numpy squeeze: darts needs >=1.26, dowhy needs >2.0, but numba
+  # (pulled in by darts[torch]->pyod) caps it at <2.5. Pin the intersection so
+  # the resolver lands here directly instead of backtracking into a conflict.
+  "numpy>=2.1,<2.5",
+  "scikit-learn",           # linear baseline (forecast.make_linear) — direct import
   "statsmodels",            # SARIMAX baselines
   "darts[torch]",           # neural forecasting (TFT) + backtesting
   "dowhy", "econml",        # causal estimation

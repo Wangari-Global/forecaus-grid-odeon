@@ -1,11 +1,20 @@
 data/raw/
 data/processed/
+# generated figures (e.g. the causal-ss break figure)
+data/*.png
 *.parquet
-# ...but the tiny committed offline sample MUST be tracked.
+# ...but the tiny committed offline samples MUST be tracked (incl. ss/ feeders).
 !tests/fixtures/
+!tests/fixtures/**/*.parquet
 !tests/fixtures/*.parquet
 __pycache__/
 .venv/
+venv/
 .env
+.env.*
+*.key
+*.pem
 .ipynb_checkpoints/
 *.egg-info/
+.pytest_cache/
+.DS_Store
