@@ -22,9 +22,23 @@ TEST_START = "2025-01-01"
 INGEST_START = "2024-01-01"
 INGEST_END = "2025-06-01"
 
+# Secondary-substation / LV-feeder layer (UK Power Networks LV-feeder dataset).
+SS_TARGET = "load_kw"
+SS_COUNTRY = "GB"            # dataset country -> holidays + civil-calendar tz
+SS_REGION = "GB"            # weather region (representative point, see ingest.weather)
+# Train/test boundary for per-feeder SS frames: a fraction in (0, 1) of the
+# (chronological) rows, or an explicit UTC date string. Used by ss_train_test_split.
+SS_SPLIT = 0.75
+
 # Force the offline sample seed (skip all network/API). Set FORECAUS_OFFLINE=1
 # for fully reproducible, network-free ingestion (used by the test-suite).
 OFFLINE = os.environ.get("FORECAUS_OFFLINE", "").lower() in ("1", "true", "yes")
+
+# Route the ODEON Energy Data Space adapters at the committed MOCK payload
+# (tests/fixtures/odeon/) instead of the (unreleased) live API. Set
+# FORECAUS_ODEON_MOCK=1 to run the pipeline against "ODEON-shaped" data without
+# real access; with it unset the live path stays stubbed (NotImplementedError).
+ODEON_MOCK = os.environ.get("FORECAUS_ODEON_MOCK", "").lower() in ("1", "true", "yes")
 
 # ENTSO-E free API token. Get one for free: register at
 # https://transparency.entsoe.eu/ then email transparency@entsoe.eu asking for

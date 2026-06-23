@@ -19,8 +19,11 @@ from .. import config
 from ._io import cached, log
 
 _ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/era5"
-# Representative point for the FR bidding zone.
-_COORDS = {"FR": (48.8566, 2.3522)}
+# Representative point per region (single proxy point, like Paris for FR).
+_COORDS = {
+    "FR": (48.8566, 2.3522),    # Paris
+    "GB": (51.5074, -0.1278),   # London (UK Power Networks LV-feeder region)
+}
 _HOURLY_VARS = [
     "temperature_2m",         # -> temp_c
     "wind_speed_10m",         # -> wind_ms

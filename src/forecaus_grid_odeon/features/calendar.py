@@ -9,8 +9,18 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# Civil calendar / holidays are defined in local time, not UTC.
-_LOCAL_TZ = "Europe/Paris"
+# Civil calendar / holidays are defined in local time, not UTC. Map each
+# supported dataset country to its civil-calendar timezone.
+_COUNTRY_TZ = {
+    "FR": "Europe/Paris",
+    "GB": "Europe/London",
+    "UK": "Europe/London",
+}
+_DEFAULT_TZ = "Europe/Paris"
+
+
+def _local_tz(country: str) -> str:
+    return _COUNTRY_TZ.get(country.upper(), _DEFAULT_TZ)
 
 
 def _cyclical(values: np.ndarray, period: int) -> tuple[np.ndarray, np.ndarray]:
@@ -20,8 +30,10 @@ def _cyclical(values: np.ndarray, period: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def add_calendar(df: pd.DataFrame, country: str = "FR") -> pd.DataFrame:
-    """Append cyclical hour/dow/month encodings, a weekend flag and an FR
-    public-holiday flag, keyed off the frame's :class:`~pandas.DatetimeIndex`.
+    """Append cyclical hour/dow/month encodings, a weekend flag and a public-
+    holiday flag for ``country``, keyed off the frame's
+    :class:`~pandas.DatetimeIndex`. Civil-calendar fields and holidays are
+    resolved in the country's local timezone.
     """
     if not isinstance(df.index, pd.DatetimeIndex):
         raise TypeError("add_calendar requires a DatetimeIndex")
@@ -29,7 +41,7 @@ def add_calendar(df: pd.DataFrame, country: str = "FR") -> pd.DataFrame:
     out = df.copy()
     idx = out.index
     # Resolve civil-calendar fields in local time (handles UTC-stored data).
-    local = idx.tz_convert(_LOCAL_TZ) if idx.tz is not None else idx
+    local = idx.tz_convert(_local_tz(country)) if idx.tz is not None else idx
 
     out["hour_sin"], out["hour_cos"] = _cyclical(local.hour.to_numpy(), 24)
     out["dow_sin"], out["dow_cos"] = _cyclical(local.dayofweek.to_numpy(), 7)
