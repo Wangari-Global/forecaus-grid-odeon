@@ -139,3 +139,46 @@ Slice 14 may stop if every real LV source needs credentials. Fastest unlocks: tr
 
 ## Maps to the application
 Slices 15–17 fill the `[[BUILD]]` placeholders in `2607_ODEON_Challenge4_application_draft.md` (SS accuracy, federated results, edge-fit, repo URL, reproducibility). Until then those placeholders stay empty; the FL-mechanism and edge results may be cited only with an explicit "synthetic/illustrative, pending real-data validation" caveat.
+
+---
+
+# Phase 3 — Forecast at the secondary-substation level (the real Challenge-4 target)
+
+**Why:** Phase-2 validated everything on REAL UKPN data, but it forecasts **individual LV feeders** (≈tens of homes) and reports ~30% aggregate MAPE. Challenge 4's **<5%** target is for the **total load at the secondary-substation transformer** (the MV/LV winding), which sums many feeders/supply points and is far smoother. We are currently solving a harder, spikier problem than the call asks, and "30% vs <5%" reads badly in the proposal even with caveats. The UKPN records carry `secondary_substation_id`, so we can build the SS-total series and forecast THAT — the correct granularity — where <5% is realistically reachable. Also pull more history (Phase-2 used ~4.3 weeks; a thin-history node had only 24 rows). Keep the per-feeder results too, framed as the harder lower bound.
+
+**Standing context to add (pin it):**
+> Challenge 4's accuracy target (<5% MAPE) is at the SECONDARY-SUBSTATION TOTAL (the MV/LV transformer winding = sum of downstream feeders/supply points), NOT a single LV feeder. Forecast the SS-aggregate as the headline; keep per-feeder numbers as a reported harder case. Never present a per-feeder number as if it were the SS-level result. All real-data honesty rules from Phase 2 still apply.
+
+Order: 18 → 19 → 20 → 21. (Re-uses the Phase-2 ingest/model/FL/flex machinery — these are extensions, not rewrites.)
+
+### Slice 18 — Pull more history + build the SS-aggregate series  *(deps: Phase 2 committed)*
+```
+Two changes, both on REAL UKPN data via the existing ingest_ss.real / ukpn path (UKPN_API_KEY).
+1) HISTORY: extend the download window to the longest contiguous span the dataset offers per feeder — target >= 6 months (ideally ~12) of half-hourly data — via config (e.g. INGEST_START/INGEST_END). Cache per feeder as today. Print per-feeder span + %-missing; keep feeders with >= a few months and < ~5% missing after cleaning.
+2) AGGREGATION: add a function (e.g. ingest_ss.aggregate.substation_totals) that groups the per-feeder load_kw by `secondary_substation_id` and SUMS to a single SS-total load_kw series per substation (align timestamps; require >= K feeders present per timestep or document the gap-handling). Write one parquet per substation to data/raw/ss_agg/<substation_id>.parquet on the same load_kw contract. Add a committed small SYNTHETIC multi-substation SS-aggregate fixture under tests/fixtures/ss_agg/ for offline CI (clearly labelled synthetic, same pattern as the feeder fixtures).
+Acceptance: data/raw/ss_agg holds >1 real SS-total series with documented span (>= several months); a unit test builds an SS-total from >=2 feeder fixtures and checks the sum + schema/freq; data/README.md updated (span, #substations, #feeders rolled up).
+```
+
+### Slice 19 — Re-benchmark at SS level (headline <5% attempt)  *(deps: 18)*
+```
+Run the day-ahead forecast benchmark on the SS-AGGREGATE series (seasonal_naive, SARIMAX, structured GAM) with the leak-safe calendar + weather + 24h/168h lags now that history is longer. Add cli `forecast-ss-agg` (or a --level=substation flag on forecast-ss). Report per-substation + aggregate MAPE/MAE/RMSE + interval coverage. Regenerate odeon_benchmark.csv with BOTH levels clearly labelled: role="substation-total (Challenge-4 target)" and the existing role="per-feeder (harder case)". Update RESULTS.md + PROPOSAL_NUMBERS.md so the HEADLINE accuracy is the SS-total number, with the per-feeder figure kept as the harder lower bound. Report honestly: if SS-total reaches/approaches <5%, state it; if not, state the achieved number and the gap and why.
+Acceptance: SS-total benchmark present and labelled as the Challenge-4 target; structured model >= naive at SS level; RESULTS.md/PROPOSAL_NUMBERS.md headline = SS-total; guard PASS.
+```
+
+### Slice 20 — Re-run FL + flex at SS level  *(deps: 19)*
+```
+Federate the structured forecaster across SUBSTATIONS (each SS-total series = one node) with the existing Flower client + deterministic fedavg; report local vs federated-global vs centralised + cold-start at SS level, parameters-only (no raw data leaves a node). Re-run the forecast->flex congestion schedule on an SS-total forecast against a realistic SS transformer limit (document how the limit is set — e.g. a percentile of historical SS peak, clearly labelled as illustrative until the pilot provides the real rating). Regenerate the federated-convergence and forecast->flex figures + the RESULTS.md/PROPOSAL_NUMBERS.md federated + flex paragraphs at SS level.
+Acceptance: FL and flex re-run on SS-total series; figures + numbers regenerated and labelled SS-level; no-raw-data-leaves-node test still passes.
+```
+
+### Slice 21 — Refresh evidence + commit  *(deps: 19, 20)*
+```
+Regenerate notebooks/figures and PROPOSAL_NUMBERS.md so every [[BUILD]] value reflects the SS-aggregate headline (keep per-feeder as the harder case). Re-run `python scripts/reproduce_headline.py` (guard PASS) and `pytest -q`. Ensure data/ stays gitignored, fixtures clearly synthetic, README Results section = SS-level real numbers. Commit the whole Phase-3 change set in logical chunks; print the suggested push command for Ari (do not push).
+Acceptance: PROPOSAL_NUMBERS.md headline = SS-total real numbers; tests + guard green; clean commit(s); repo ready to push.
+```
+
+## Gating note for Ari
+Needs `UKPN_API_KEY` set (already obtained) and that the longer history span is actually served by the dataset for the chosen feeders — if UKPN only exposes a short rolling window for these feeders, Slice 18 should report the real maximum span rather than pad it, and we decide whether to add more substations to compensate.
+
+## Maps to the application
+Slice 19 replaces the `[[BUILD: ss_forecast_mape_coverage]]` headline in `2607_ODEON_Challenge4_application_draft.md` with the **substation-total** number (the Challenge-4-comparable figure); Slice 20 refreshes the federated + flex placeholders at SS level; Slice 21 produces the final PROPOSAL_NUMBERS.md to paste. Until Slice 19 lands, cite only FL / edge / reproducibility, not the per-feeder accuracy.
