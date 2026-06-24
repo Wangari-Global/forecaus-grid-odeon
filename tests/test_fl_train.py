@@ -156,3 +156,30 @@ def test_consensus_equals_fedavg_of_local_optima(fl_result):
     reference = fedavg(local_dicts, weights)
     for k, v in fl_result["global_params"].items():
         assert v == pytest.approx(reference[k], abs=1e-3)
+
+
+# ------------------------------- SUBSTATION-level federation (Challenge-4) -----
+def test_substation_level_federation_is_parameters_only():
+    """Federating one SS-TOTAL series per node still moves only parameter vectors
+    (the no-raw-data invariant holds at substation level too), with >1 node."""
+    import pathlib
+    import tempfile
+
+    from forecaus_grid_odeon.fl import build_ss_nodes, run_fl_training
+
+    _r, _o = config.RAW, config.OFFLINE
+    with tempfile.TemporaryDirectory() as d:
+        config.RAW, config.OFFLINE = pathlib.Path(d), True
+        try:
+            nodes, feats, _ = build_ss_nodes(level="substation", thin_train=24)
+            res = run_fl_training(rounds=6, thin_train=24, level="substation")
+        finally:
+            config.RAW, config.OFFLINE = _r, _o
+
+    assert res["level"] == "substation"
+    assert res["n_nodes"] > 1 and len(nodes) == res["n_nodes"]   # >1 substation node
+    # Every uplink was exactly n_params floats — independent of a node's samples.
+    assert res["uplink_param_floats"] == [res["n_params"]]
+    assert res["n_params"] < res["min_node_samples"]
+    # Federated-global is at least as good as local-only (federation helps / ties).
+    assert res["aggregate"]["global_MAPE"] <= res["aggregate"]["local_MAPE"] + 1e-9

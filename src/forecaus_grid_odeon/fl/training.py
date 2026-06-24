@@ -29,9 +29,30 @@ from .flower_client import (TransparentFLClient, fit_scaler, params_to_vector,
                             predict_standardized, ridge_standardized, vector_to_params)
 
 
+def _node_ids(level: str) -> list[str]:
+    """Federation node ids: LV feeders, or SS-total substations (``level``)."""
+    from ..pipeline import ss_agg_substations, ss_feeders
+    return ss_agg_substations() if level == "substation" else ss_feeders()
+
+
+def _node_series(node_id: str, level: str, target: str) -> pd.Series:
+    """One node's ``load_kw`` series: a feeder, or a substation SS-total."""
+    if level == "substation":
+        from .. import config
+        from ..ingest_ss import aggregate, ukpn
+        if config.OFFLINE:
+            return aggregate.load_agg_fixture(node_id)[target]
+        path = config.RAW / aggregate.AGG_SUBDIR / f"{node_id}.parquet"
+        return ukpn.normalise(pd.read_parquet(path))[target]
+    from ..ingest_ss import ukpn
+    sub, fdr = ukpn._key_to_feeder(node_id)
+    return ukpn.fetch_feeder(sub, fdr)[target]
+
+
 def build_ss_nodes(
     feeders: Optional[Sequence[str]] = None,
     *,
+    level: str = "feeder",
     target: str = "load_kw",
     test_steps: int = 48,
     lags: Sequence[int] = (1, 48),
@@ -39,27 +60,24 @@ def build_ss_nodes(
     thin_feeder: Optional[str] = None,
     thin_train: int = 24,
 ) -> tuple[dict[str, tuple[pd.DataFrame, pd.DataFrame]], list[str], str]:
-    """Build per-feeder (train, test) frames with an identical feature set.
+    """Build per-node (train, test) frames with an identical feature set.
 
-    A common (lags, rolling) spec is used for every node so the parameter
-    vectors line up. One feeder is designated thin-history (its train window is
-    truncated to ``thin_train`` rows) to demonstrate cold start.
-
-    Returns ``(nodes, feature_order, thin_feeder)``.
+    ``level`` chooses the federation node: ``"feeder"`` (one LV feeder per node)
+    or ``"substation"`` (one SS-TOTAL series per node). A common (lags, rolling)
+    spec is used for every node so the parameter vectors line up; one node is
+    designated thin-history (train truncated to ``thin_train`` rows) for cold
+    start. Returns ``(nodes, feature_order, thin_feeder)``.
     """
     from ..features import build_ss_frame
-    from ..ingest_ss import ukpn
-    from ..pipeline import ss_feeders
 
-    feeders = list(feeders) if feeders is not None else ss_feeders()
+    feeders = list(feeders) if feeders is not None else _node_ids(level)
     if thin_feeder is None:
         thin_feeder = feeders[0]
 
     nodes: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
     feature_order: list[str] = []
     for fid in feeders:
-        sub, fdr = ukpn._key_to_feeder(fid)
-        series = ukpn.fetch_feeder(sub, fdr)[target]
+        series = _node_series(fid, level, target)
         frame = build_ss_frame(series, lags=list(lags), rolling_windows=list(rolling))
         if not feature_order:
             feature_order = [c for c in frame.columns if c != target]
@@ -171,7 +189,10 @@ def federate(
 
 
 def run_fl_training(rounds: int = 12, lr: float = 0.5, l2: float = 1.0,
-                    thin_train: int = 24) -> dict:
-    """End-to-end offline federation on the committed SS fixtures."""
-    nodes, feature_order, thin = build_ss_nodes(thin_train=thin_train)
-    return federate(nodes, feature_order, rounds=rounds, lr=lr, l2=l2, thin_feeder=thin)
+                    thin_train: int = 24, level: str = "feeder") -> dict:
+    """End-to-end federation. ``level="substation"`` federates one SS-TOTAL series
+    per node (the Challenge-4 target); ``"feeder"`` federates per LV feeder."""
+    nodes, feature_order, thin = build_ss_nodes(level=level, thin_train=thin_train)
+    out = federate(nodes, feature_order, rounds=rounds, lr=lr, l2=l2, thin_feeder=thin)
+    out["level"] = level
+    return out

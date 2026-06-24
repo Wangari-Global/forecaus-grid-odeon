@@ -73,19 +73,22 @@ def _panel(exog: list[str], target: str, ppd: int, alpha: float) -> dict:
 def run_ss_benchmark(
     frames: Optional[Iterable[tuple[str, pd.DataFrame]]] = None,
     *,
+    level: str = "feeder",
     target: str = "load_kw",
     alpha: float = 0.1,
     max_feeders: Optional[int] = None,
 ) -> dict:
-    """Benchmark every feeder day-ahead; return per-feeder + aggregate tables.
+    """Benchmark every unit day-ahead; return per-unit + aggregate tables.
 
-    Returns ``{"per_feeder": {fid: table}, "aggregate": table, "params":
-    (fid, parameter_dict)}``. ``params`` is the structured model's named
-    coefficients fit on the first feeder - the audit / federation (Slice 5) hook.
+    ``level`` selects the granularity when ``frames`` is None: ``"feeder"`` (per
+    LV feeder) or ``"substation"`` (the SS-TOTAL rollups — the Challenge-4 target
+    level). Returns ``{"per_feeder": {id: table}, "aggregate": table, "params":
+    (id, parameter_dict), "level": level}`` (``per_feeder`` is keyed by feeder or
+    substation id per ``level``). Each table carries MAE/RMSE/MAPE + coverage.
     """
     if frames is None:
-        from ..pipeline import iter_ss_frames
-        frames = iter_ss_frames()
+        from ..pipeline import iter_ss_agg_frames, iter_ss_frames
+        frames = iter_ss_agg_frames() if level == "substation" else iter_ss_frames()
 
     per_feeder: dict[str, pd.DataFrame] = {}
     params: Optional[tuple[str, dict]] = None
@@ -112,6 +115,7 @@ def run_ss_benchmark(
         "per_feeder": per_feeder,
         "aggregate": aggregate_tables(per_feeder),
         "params": params,
+        "level": level,
     }
 
 

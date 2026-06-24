@@ -143,3 +143,55 @@ def iter_ss_frames(
             )
         except Exception as exc:  # noqa: BLE001 - skip unbuildable node, keep going
             print(f"[pipeline] skipping feeder {fid}: {exc!r}")
+
+
+# --------------------------------------- SS-aggregate (substation-total) layer --
+def ss_agg_substations() -> list[str]:
+    """Substation ids with an SS-total series. Offline: the committed synthetic
+    SS-aggregate fixtures; else the real rollups under ``data/raw/ss_agg/``."""
+    from .ingest_ss import aggregate
+
+    if config.OFFLINE:
+        return aggregate.available_agg_fixture_keys()
+    return sorted(p.stem for p in (config.RAW / aggregate.AGG_SUBDIR).glob("*.parquet"))
+
+
+def using_real_ss_agg_data() -> bool:
+    """True iff real SS-total rollups exist and we are not forced offline."""
+    from .ingest_ss import aggregate
+    return (not config.OFFLINE) and any(
+        (config.RAW / aggregate.AGG_SUBDIR).glob("*.parquet"))
+
+
+def load_ss_agg_frame(substation_id: str, *, with_weather: bool = True) -> pd.DataFrame:
+    """Build one substation-total modelling frame (target ``load_kw`` first column).
+
+    Same machinery as :func:`load_ss_frame` but on the SUMMED per-substation
+    series (``data/raw/ss_agg/`` or the committed fixtures): weather over its
+    actual span + length-adapted calendar/lag features. Aligned and NA-free.
+    """
+    from .ingest_ss import aggregate
+
+    if config.OFFLINE:
+        series = aggregate.load_agg_fixture(substation_id)[SS_TARGET]
+    else:
+        path = config.RAW / aggregate.AGG_SUBDIR / f"{substation_id}.parquet"
+        series = aggregate.ukpn.normalise(pd.read_parquet(path))[SS_TARGET]
+
+    wx = _ss_weather(series.index) if with_weather else None
+    frame = build_ss_frame(series, weather=wx, country=config.SS_COUNTRY)
+    if frame.empty:
+        raise RuntimeError(f"SS-total frame for {substation_id} is empty — series too short")
+    return frame
+
+
+def iter_ss_agg_frames(
+    substations: Optional[Iterable[str]] = None, *, with_weather: bool = True,
+) -> Iterator[tuple[str, pd.DataFrame]]:
+    """Yield ``(substation_id, frame)`` per SS-total series (skip unbuildable)."""
+    substations = list(substations) if substations is not None else ss_agg_substations()
+    for sub in substations:
+        try:
+            yield sub, load_ss_agg_frame(sub, with_weather=with_weather)
+        except Exception as exc:  # noqa: BLE001 - skip unbuildable substation, keep going
+            print(f"[pipeline] skipping substation {sub}: {exc!r}")
