@@ -29,36 +29,47 @@ _Headline numbers below are regenerated from cached data by
 [`notebooks/figures/RESULTS.md`](notebooks/figures/RESULTS.md); the deterministic
 guard (`validation/`) verifies every figure traces to a computed value._
 
-Across **8 secondary-substation feeders** (real UKPN LV-feeder demand), the
-**day-ahead** forecast benchmark gives an aggregate MAPE of **36.18%**
-(seasonal-naive), **40.92%** (SARIMAX) and **30.51%** (interpretable structured
-model). The **structured model beats seasonal-naive** (30.51% vs 36.18%) and is
-the best of the three; it stays **above the <5% target (gap 25.51 pp)** because a
-single LV feeder (≈tens of homes, half-hourly) is far noisier than the aggregated
-load that target was set for — see the honesty note below.
+**Headline — substation-total (the Challenge-4 target level).** Across **6
+secondary substations** (the 8 feeders summed per substation), the **day-ahead**
+benchmark gives an aggregate MAPE of **35.45%** (seasonal-naive), **39.79%**
+(SARIMAX) and **29.81%** (interpretable structured model) at **0.906** interval
+coverage. The **structured model beats seasonal-naive** (29.81% vs 35.45%) and is
+the best of the three. The harder **per-feeder** level (8 feeders, lower bound)
+gives **30.51%** for the structured model (vs **36.18%** naive, **40.92%**
+SARIMAX). Both stay **above the <5% target** (substation gap **24.81 pp**) because
+these substations roll up only 1–2 LV feeders (≈tens of homes), still far spikier
+than whole-network load — see the honesty note below.
 
-Federating the structured model across **8 substation nodes** over **12 rounds**
-lifts the aggregate test MAPE from **30.79%** (local-only) to **23.32%**
-(federated-global), approaching the **22.99%** of a centralised model trained on
-pooled data — **without any raw data leaving a node**. The thin-history feeder
-(only **24** training rows) improves from **111.02%** local to **49.24%** under
-federation, a cold-start gain of **61.78 pp**.
+Federating the structured model **across the 6 substations** (one SS-total per
+node) over **12 rounds** lifts the aggregate test MAPE from **33.83%** (local-only)
+to **23.85%** (federated-global), approaching the **23.51%** of a centralised model
+trained on pooled data — **without any raw data leaving a node** (only parameter
+vectors are exchanged). The thin-history substation (only **24** training rows)
+improves from **111.02%** local to **49.95%** under federation, a cold-start gain
+of **61.07 pp**. The day-ahead SS-total interval forecast then sizes congestion
+flex on the busiest substation against an illustrative transformer limit (**27.4
+kW**, an 85th-percentile stand-in until the pilot's real rating): **34.9 kWh** of
+risk-adjusted down-flex (peak **13.3 kW**) vs **14.8 kWh** point-only.
 
 ### ODEON benchmark table — `notebooks/figures/odeon_benchmark.csv`
 
 Dataset: *real UK Power Networks "Smart Meter Consumption – LV Feeder"* (CC BY
-4.0; per-feeder rows + span/access date in the CSV and `data/README.md`). MAPE in
-%, coverage = share of actuals inside the 90% conformal interval (point-only for
-the FL rows). Aggregate over 8 feeders:
+4.0; the CSV carries **both levels** — per-substation/per-feeder + aggregate, with
+MAE/RMSE — and span/access date are in the CSV and `data/README.md`). MAPE in %,
+coverage = share of actuals inside the 90% conformal interval (point-only for the
+FL rows). Aggregates:
 
-| model | role | protocol | MAPE | coverage |
+| level | model | protocol | MAPE | coverage |
 |---|---|---|---:|---:|
-| seasonal_naive | baseline | day-ahead rolling-origin | 36.18 | 0.898 |
-| sarimax | baseline | day-ahead rolling-origin | 40.92 | 0.902 |
-| structured_gam | interpretable (non-federated) | day-ahead rolling-origin | 30.51 | 0.904 |
-| structured_gam | local-only | last-day holdout, per-node | 30.79 | — |
-| structured_gam | federated-global | last-day holdout, per-node | 23.32 | — |
-| structured_gam | centralised (pooled) | last-day holdout, per-node | 22.99 | — |
+| **substation-total (Challenge-4 target)** | **structured_gam** | day-ahead rolling-origin | **29.81** | **0.906** |
+| substation-total (Challenge-4 target) | seasonal_naive | day-ahead rolling-origin | 35.45 | 0.902 |
+| substation-total (Challenge-4 target) | sarimax | day-ahead rolling-origin | 39.79 | 0.896 |
+| per-feeder (harder case) | structured_gam | day-ahead rolling-origin | 30.51 | 0.904 |
+| per-feeder (harder case) | seasonal_naive | day-ahead rolling-origin | 36.18 | 0.898 |
+| per-feeder (harder case) | sarimax | day-ahead rolling-origin | 40.92 | 0.902 |
+| substation-total (federated) | structured_gam local-only | last-day holdout, per-node | 33.83 | — |
+| substation-total (federated) | structured_gam federated-global | last-day holdout, per-node | 23.85 | — |
+| substation-total (federated) | structured_gam centralised (pooled) | last-day holdout, per-node | 23.51 | — |
 
 The two `protocol` groups use different evaluation harnesses (rolling-origin
 day-ahead vs per-node last-day holdout) and are reported separately rather than
@@ -66,20 +77,23 @@ mixed. Figures: `notebooks/figures/` (forecast benchmark, causal DAG + break,
 federated convergence, forecast→flex schedule, edge-deployability). The
 federated-convergence, forecast→flex and edge figures (+ `edge_fit.csv`) are
 regenerated from the real data by `make figures-real`
-(`scripts/regenerate_real_figures.py`); federation cuts aggregate test MAPE from
-**30.79%** (local-only) to **23.32%** (federated-global, approaching the
-**22.99%** centralised bound), and the interpretable model fits the documented
-Raspberry-Pi-4 edge envelope (≈0.6 KiB artifact, sub-ms inference).
+(`scripts/regenerate_real_figures.py`); **SS-level** federation cuts aggregate
+test MAPE from **33.83%** (local-only) to **23.85%** (federated-global, approaching
+the **23.51%** centralised bound), the SS-total flex schedule sizes ~**34.9 kWh**
+of down-flex on the busiest substation, and the interpretable model fits the
+documented Raspberry-Pi-4 edge envelope (≈0.6 KiB artifact, sub-ms inference).
 
-> **Honesty note.** On real per-feeder half-hourly demand the structured model
-> beats seasonal-naive (30.51% vs 36.18%) but stays well above the <5% MAPE
-> target — that target is an *aggregated*-load figure, and a single LV feeder is
-> far spikier (small denominators inflate MAPE), so <5% is not attainable per
-> feeder. The model's value is transparency + calibrated intervals + federation
-> (which cuts aggregate MAPE from 30.79% to 23.32%) + the cold-start gain. The
-> weather join and the 24 h / 168 h lags both help, and the leaky intra-horizon
-> lag_1 / rolling features were removed so the day-ahead numbers are honest.
-> Numbers are reported as computed, not cherry-picked.
+> **Honesty note.** The headline is the **substation-total** level (29.81% MAPE),
+> the granularity a DNO actually manages; the structured model beats seasonal-naive
+> at both levels (29.81% vs 35.45% substation; 30.51% vs 36.18% feeder) but stays
+> well above the <5% target. That target is a *large-aggregation* figure, and these
+> substations roll up only 1–2 feeders (small denominators inflate MAPE), so <5% is
+> not attainable here — it would need substations aggregating many more feeders.
+> The model's value is the right granularity + transparency + calibrated intervals
+> + SS-level federation (which cuts aggregate MAPE from 33.83% to 23.85%) + the cold-start
+> gain. The weather join and the 24 h / 168 h lags both help, and the leaky
+> intra-horizon lag_1 / rolling features were removed so the day-ahead numbers are
+> honest. Numbers are reported as computed, not cherry-picked.
 
 ## One-command reproduction
 

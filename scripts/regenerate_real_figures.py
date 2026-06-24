@@ -46,10 +46,10 @@ def _require_real() -> None:
 
 
 def federated_convergence() -> dict:
-    """FL across the real feeders -> convergence figure; return the headline dict."""
+    """FL across the real SUBSTATIONS (SS-total nodes) -> convergence figure."""
     from forecaus_grid_odeon.fl import run_fl_training
 
-    fl = run_fl_training(rounds=12)
+    fl = run_fl_training(rounds=12, level="substation")
     agg, cs = fl["aggregate"], fl["cold_start"]
     trace = fl["convergence"]
 
@@ -60,47 +60,52 @@ def federated_convergence() -> dict:
                label=f"centralised ({agg['centralised_MAPE']:.1f}%)")
     ax.set_xlabel("FedAvg round")
     ax.set_ylabel("aggregate test MAPE [%]")
-    ax.set_title(f"Federated convergence — {fl['n_nodes']} real LV feeders")
+    ax.set_title(f"Federated convergence — {fl['n_nodes']} real substations (SS-total nodes)")
     ax.grid(alpha=0.3)
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(FIG / "03_federated_convergence.png", dpi=130)
     plt.close(fig)
     print("saved", FIG / "03_federated_convergence.png")
-    print(f"  FL: local {agg['local_MAPE']:.2f}% -> global {agg['global_MAPE']:.2f}% "
+    print(f"  SS-level FL: local {agg['local_MAPE']:.2f}% -> global {agg['global_MAPE']:.2f}% "
           f"(centralised {agg['centralised_MAPE']:.2f}%); "
           f"cold start {cs['local_MAPE']:.2f}% -> {cs['global_MAPE']:.2f}% "
           f"(+{cs['benefit']:.2f} pp); uplink floats {fl['uplink_param_floats']} "
           f"(no raw data leaves a node)")
-    return {"aggregate": agg, "cold_start": cs}
+    return {"aggregate": agg, "cold_start": cs, "n_nodes": fl["n_nodes"]}
 
 
 def forecast_to_flex() -> dict:
-    """Forecast -> risk-adjusted congestion schedule on a real feeder -> figure."""
+    """Forecast -> risk-adjusted congestion schedule on an SS-TOTAL series -> figure.
+
+    Demos the busiest substation (highest SS-total peak) — the natural congestion
+    candidate and a genuine multi-feeder rollup (run_flex picks it by default)."""
     from forecaus_grid_odeon.flex import run_flex
 
-    res = run_flex()
+    res = run_flex(level="substation")
     sched, s = res["schedule"], res["summary"]
 
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(sched.index, sched["forecast"], color=BLUE, label="forecast")
+    ax.plot(sched.index, sched["forecast"], color=BLUE, label="SS-total forecast")
     ax.fill_between(sched.index, sched["lower"], sched["upper"], alpha=0.2, color=BLUE, label="interval")
-    ax.plot(sched.index, sched["ss_limit"], ls="--", color="red", label="binding limit")
+    ax.plot(sched.index, sched["ss_limit"], ls="--", color="red", label="SS transformer limit (illustrative)")
     ax2 = ax.twinx()
     ax2.bar(sched.index, sched["flex_down"], width=0.015, color=RED, alpha=0.6)
-    ax.set_ylabel("load [kW]")
+    ax.set_ylabel("SS-total load [kW]")
     ax2.set_ylabel("flex_down [kW]")
-    ax.set_title(f"Forecast vs limit -> risk-adjusted down-flex (real feeder {res['feeder_id']})")
+    ax.set_title(f"SS-total forecast vs transformer limit -> down-flex (substation {res['feeder_id']})")
     ax.legend(loc="upper left", fontsize=8)
     fig.autofmt_xdate()
     fig.tight_layout()
     fig.savefig(FIG / "04_forecast_to_flex.png", dpi=130)
     plt.close(fig)
     print("saved", FIG / "04_forecast_to_flex.png")
-    print(f"  down-flex: peak {s['peak_flex_down']:.1f} kW, energy {s['energy_flex_down_kwh']:.1f} kWh "
-          f"over {s['n_breach_down']} steps; risk-adjusted {s['energy_flex_down_kwh']:.1f} kWh vs "
+    print(f"  substation {res['feeder_id']}: limit {res['binding_limit']:.1f} kW; down-flex peak "
+          f"{s['peak_flex_down']:.1f} kW, energy {s['energy_flex_down_kwh']:.1f} kWh over "
+          f"{s['n_breach_down']} steps; risk-adjusted {s['energy_flex_down_kwh']:.1f} kWh vs "
           f"{res['summary_point']['energy_flex_down_kwh']:.1f} kWh point-only")
-    return {"summary": s, "feeder": res["feeder_id"]}
+    print(f"  limit basis: {res['limit_basis']}")
+    return {"summary": s, "feeder": res["feeder_id"], "binding_limit": res["binding_limit"]}
 
 
 def edge_benchmark() -> None:

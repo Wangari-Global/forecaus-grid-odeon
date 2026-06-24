@@ -7,7 +7,7 @@ regenerate with the commands in the reproducibility block below.
 
 - **Data source.** UK Power Networks — *"Smart Meter Consumption – LV Feeder"*
   (`ukpowernetworks.opendatasoft.com`, opendatasoft Explore API v2.1, registered API key).
-- **Scope.** 8 LV/secondary-substation feeders (EPN + LPN), half-hourly.
+- **Scope.** 8 LV feeders rolled up to **6 secondary substations** (EPN + LPN), half-hourly.
 - **Span.** 2026-04-01 → 2026-04-30 UTC (~4.3 weeks), 0 % missing.
 - **Licence.** CC BY 4.0 — attribute "UK Power Networks". **Accessed** 2026-06-24.
 
@@ -15,44 +15,66 @@ regenerate with the commands in the reproducibility block below.
 
 ## [[BUILD: ss_forecast_mape_coverage]]
 
-Day-ahead (48-step) load forecasting at LV-feeder level, rolling-origin backtest,
-aggregate over 8 real feeders (leak-safe: calendar + weather + 24 h/168 h lags):
+Day-ahead (48-step) load forecasting, rolling-origin backtest, leak-safe features
+(calendar + weather + 24 h/168 h lags). **Headline = the substation-total level**
+(the Challenge-4 target granularity); the per-feeder level is the harder lower bound.
 
-| model | MAPE | 90 % interval coverage |
-|---|---:|---:|
-| seasonal-naive (baseline) | 36.18 % | 0.898 |
-| SARIMAX (baseline) | 40.92 % | 0.902 |
-| **structured GAM (interpretable, ours)** | **30.51 %** | **0.904** |
+**Substation-total — Challenge-4 target (HEADLINE), aggregate over 6 substations:**
 
-> The interpretable structured model is the best of the three and **beats the
-> seasonal-naive baseline (30.51 % vs 36.18 %)**, with calibrated prediction
-> intervals (90.4 % empirical coverage at the nominal 90 %). It stays above the
-> aggregate-load <5 % target (gap 25.5 pp) **because a single LV feeder
-> (≈tens of homes, half-hourly) is intrinsically far spikier than aggregated
-> demand** — reported honestly; the value is transparency + calibration +
-> federation (below), not a headline <5 %.
+| model | MAPE | MAE | RMSE | 90 % coverage |
+|---|---:|---:|---:|---:|
+| seasonal-naive (baseline) | 35.45 % | 3.13 kW | 4.15 kW | 0.902 |
+| SARIMAX (baseline) | 39.79 % | 3.25 kW | 3.98 kW | 0.896 |
+| **structured GAM (interpretable, ours)** | **29.81 %** | **2.55 kW** | **3.24 kW** | **0.906** |
+
+**Per-feeder — harder lower bound, aggregate over 8 feeders:**
+
+| model | MAPE | MAE | RMSE | 90 % coverage |
+|---|---:|---:|---:|---:|
+| seasonal-naive | 36.18 % | 2.65 kW | 3.55 kW | 0.898 |
+| SARIMAX | 40.92 % | 2.71 kW | 3.31 kW | 0.902 |
+| **structured GAM (ours)** | **30.51 %** | **2.15 kW** | **2.75 kW** | **0.904** |
+
+> Headline accuracy is the **substation-total** interpretable model: **29.81 % MAPE
+> at 0.906 interval coverage**, **beating seasonal-naive (35.45 %)** and the best of
+> the three. The per-feeder level (30.51 %) is the harder lower bound. Both stay
+> above the <5 % target — **reported honestly** — because these substations roll up
+> only 1–2 LV feeders (≈ tens of homes), so they remain far spikier than the
+> whole-network load that target was set for; approaching <5 % needs much larger
+> aggregation. The value is the right granularity + transparency + calibrated
+> intervals + federation (below), not a headline <5 %.
 
 ## [[BUILD: federated_vs_centralised_vs_local]]
 
-Federated learning across the 8 substations (FedAvg, 12 rounds; per-node last-day
-holdout). **No raw data leaves a node — only fixed-length parameter vectors
-(12 floats/round) are exchanged**:
+Federated learning **across the 6 substations** (one SS-total series per node;
+FedAvg, 12 rounds; per-node last-day holdout). **No raw data leaves a node — only
+fixed-length parameter vectors (12 floats/round) are exchanged**:
 
 | setting | aggregate test MAPE |
 |---|---:|
-| local-only (each node alone) | 30.79 % |
-| **federated-global (no data shared)** | **23.32 %** |
-| centralised (data pooled — upper bound) | 22.99 % |
+| local-only (each substation alone) | 33.83 % |
+| **federated-global (no data shared)** | **23.85 %** |
+| centralised (data pooled — upper bound) | 23.51 % |
 
-> Federation cuts aggregate MAPE from **30.79 % → 23.32 %** (a **7.5 pp** gain),
-> reaching within **0.3 pp** of the centralised, data-pooled bound (22.99 %) —
+> Federation cuts aggregate MAPE from **33.83 % → 23.85 %** (a **≈10 pp** gain),
+> reaching within **≈0.3 pp** of the centralised, data-pooled bound (23.51 %) —
 > **without any raw consumption data leaving a substation.**
 
 ## [[BUILD: cold_start_gain]]
 
-> A thin-history feeder (only 24 training rows) improves from **111.02 % local to
-> 49.24 % under federation — a +61.78 pp cold-start gain** from the shared global
-> model, with no data shared.
+> A thin-history **substation** (only 24 training rows) improves from **111.02 %
+> local to 49.95 % under federation — a +61.07 pp cold-start gain** from the shared
+> global model, with no data shared.
+
+## [[BUILD: forecast_to_flex]]
+
+> Turning the **SS-total** day-ahead interval forecast into congestion relief: on
+> the busiest substation, against an **illustrative** secondary-transformer
+> firm-rating limit of **27.4 kW** (the 85th percentile of that substation's own
+> historical half-hourly load — a transparent stand-in **until the pilot provides
+> the real nameplate rating**), the schedule sizes **34.9 kWh** of risk-adjusted
+> **down-flex** (peak **13.3 kW**) across **9** half-hours — vs **14.8 kWh** sized
+> against the point forecast alone (the extra headroom the prediction interval buys).
 
 ## [[BUILD: edge_fit]]
 

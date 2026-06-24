@@ -55,10 +55,14 @@ def test_odeon_benchmark_csv_regenerated_and_matches_results():
     assert csv.exists() and md.exists()
 
     table = pd.read_csv(csv)
-    assert {"dataset", "feeder", "model", "role", "MAPE_pct", "coverage"} <= set(table.columns)
+    assert {"dataset", "level", "feeder", "model", "role", "MAPE_pct", "coverage"} <= set(table.columns)
     roles = set(table["role"])
     assert {"baseline", "local-only", "federated-global", "centralised (pooled)"} <= roles
-    # The CSV carries BOTH per-feeder and aggregate rows.
+    # BOTH levels present and clearly labelled (substation-total = Challenge-4 target).
+    levels = set(table["level"])
+    assert any("substation-total" in lvl and "Challenge-4" in lvl for lvl in levels)
+    assert any("per-feeder" in lvl for lvl in levels)
+    # The CSV carries BOTH per-unit and aggregate rows.
     assert (table["feeder"] == "ALL (aggregate)").any()
     assert (table["feeder"] != "ALL (aggregate)").any()
     # Fixture run (notebook forces FORECAUS_OFFLINE=1): the dataset column must
