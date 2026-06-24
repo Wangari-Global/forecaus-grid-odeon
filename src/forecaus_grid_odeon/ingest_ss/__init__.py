@@ -14,7 +14,9 @@ Two layers live here:
   into the SAME tidy ``load_kw`` frames as the UKPN slice (set
   ``FORECAUS_ODEON_MOCK=1`` / ``source="mock"``).
 """
-from . import odeon_api, ukpn
+from . import aggregate, odeon_api, ukpn
+from .aggregate import substation_totals, write_substation_totals
 from .ukpn import SS_SCHEMA, fetch_feeder, ingest_ss
 
-__all__ = ["ukpn", "odeon_api", "ingest_ss", "fetch_feeder", "SS_SCHEMA"]
+__all__ = ["ukpn", "odeon_api", "aggregate", "ingest_ss", "fetch_feeder",
+           "SS_SCHEMA", "substation_totals", "write_substation_totals"]

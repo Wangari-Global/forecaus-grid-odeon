@@ -106,14 +106,22 @@ def _try_ukpn(n_feeders: int, min_nonnull: int, *, start: Optional[str] = None,
         start = start or lo[0][T][:10]
         end = end or (pd.Timestamp(hi[0][T]) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     window = f'{notnull} and {T}>="{start}" and {T}<"{end}"'
-    log(f"source 2 (UKPN): window {start} .. {end}; discovering best-covered feeders")
+    log(f"source 2 (UKPN): window {start} .. {end} (longest available span)")
 
-    # Discover feeders with the most non-null half-hourly records in the window.
-    disc = _get("records", select=f"{SUB},{FDR},count(*) as n", where=window,
-                group_by=f"{SUB},{FDR}", order_by="n desc", limit=n_feeders * 3)["results"]
-    feeders = [(r[SUB], r[FDR]) for r in disc if r["n"] >= min_nonnull][:n_feeders]
+    # Feeders: REFRESH the already-ingested set over the (possibly longer) window
+    # so the feeder set stays stable across history extensions; otherwise DISCOVER
+    # the best-covered feeders (deterministic tiebreak for reproducibility).
+    existing = ukpn.cached_feeder_keys()
+    if existing:
+        feeders = [ukpn._key_to_feeder(k) for k in existing]
+        log(f"source 2 (UKPN): refreshing {len(feeders)} already-ingested feeders")
+    else:
+        disc = _get("records", select=f"{SUB},{FDR},count(*) as n", where=window,
+                    group_by=f"{SUB},{FDR}", order_by=f"n desc, {SUB}, {FDR}",
+                    limit=n_feeders * 3)["results"]
+        feeders = [(r[SUB], r[FDR]) for r in disc if r["n"] >= min_nonnull][:n_feeders]
     if len(feeders) < MIN_FEEDERS:
-        log(f"source 2 (UKPN): only {len(feeders)} feeders have >= {min_nonnull} records — skipping.")
+        log(f"source 2 (UKPN): only {len(feeders)} feeders available — skipping.")
         return None
 
     out: dict[str, pd.DataFrame] = {}
@@ -126,8 +134,16 @@ def _try_ukpn(n_feeders: int, min_nonnull: int, *, start: Optional[str] = None,
         df[T] = pd.to_datetime(df[T], utc=True)
         df = df.set_index(T)
         df["load_kw"] = pd.to_numeric(df[IMP], errors="coerce") / ukpn.WH_PER_HH_TO_KW
-        out[ukpn.feeder_key(sub, fid)] = ukpn.normalise(df.dropna(subset=["load_kw"]))
-        log(f"  {ukpn.feeder_key(sub, fid)}: {len(out[ukpn.feeder_key(sub, fid)])} half-hours")
+        feeder = ukpn.normalise(df.dropna(subset=["load_kw"]))
+        # Cleaning gate: keep only feeders with < SS_MAX_MISSING gaps over their span.
+        grid = pd.date_range(feeder.index.min(), feeder.index.max(), freq=ukpn.FREQ, tz="UTC")
+        pct_missing = float(feeder.reindex(grid).isna().any(axis=1).mean())
+        if pct_missing > config.SS_MAX_MISSING:
+            log(f"  dropping {ukpn.feeder_key(sub, fid)}: {pct_missing*100:.1f}% missing "
+                f"(> {config.SS_MAX_MISSING*100:.0f}%)")
+            continue
+        out[ukpn.feeder_key(sub, fid)] = feeder
+        log(f"  {ukpn.feeder_key(sub, fid)}: {len(feeder)} half-hours, {pct_missing*100:.1f}% missing")
 
     if len(out) < MIN_FEEDERS:
         return None
@@ -183,9 +199,17 @@ def _sanity_report(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
 
 def ingest_ss_real(*, n_feeders: int = 8, min_weeks: int = 2,
-                   start: Optional[str] = None, end: Optional[str] = None) -> dict:
+                   start: Optional[str] = None, end: Optional[str] = None,
+                   aggregate: bool = True) -> dict:
     """Try the documented sources in order; write the first that works to
-    ``data/raw/ss/`` and print a sanity report. STOPs (SystemExit) if all fail."""
+    ``data/raw/ss/`` and print a sanity report. STOPs (SystemExit) if all fail.
+
+    The download window defaults to ``config.SS_INGEST_START/END`` (None ->
+    auto-discover the longest contiguous span the dataset publishes). With
+    ``aggregate=True`` it also rolls feeders up to SS-totals (``data/raw/ss_agg``).
+    """
+    start = start or config.SS_INGEST_START
+    end = end or config.SS_INGEST_END
     min_nonnull = int(min_weeks * 7 * 48)
     sources = [
         ("SPEN lv_monitor", lambda: _try_spen_lv_monitor()),
@@ -243,4 +267,22 @@ def ingest_ss_real(*, n_feeders: int = 8, min_weeks: int = 2,
 
     print(f"OK: {len(frames)} real feeders, span {span_days:.0f} days "
           f"(>= {MIN_DAYS}) written to {raw_dir}")
-    return {"source": name, "provenance": provenance, "report": report, "frames": frames}
+
+    target = config.SS_TARGET_HISTORY_DAYS
+    short = report[report["days"] < target]
+    if len(short):
+        print(f"\nHISTORY NOTE: {len(short)}/{len(report)} feeders have < {target} d "
+              f"(< ~6 months). The UKPN opendatasoft preview currently publishes only "
+              f"~1 month of non-null load (records_count capped at 30000); reaching the "
+              f">= 6-month target needs UKPN's registered bulk historical export, which is "
+              f"NOT available via this API path. Real data is kept as-is — never padded or "
+              f"relabelled.")
+
+    ss_totals = None
+    if aggregate:
+        from .aggregate import write_substation_totals
+        print()
+        ss_totals = write_substation_totals()
+
+    return {"source": name, "provenance": provenance, "report": report,
+            "frames": frames, "ss_totals": ss_totals}
