@@ -55,11 +55,20 @@ def test_odeon_benchmark_csv_regenerated_and_matches_results():
     assert csv.exists() and md.exists()
 
     table = pd.read_csv(csv)
-    assert {"dataset", "model", "role", "MAPE_pct", "coverage"} <= set(table.columns)
+    assert {"dataset", "feeder", "model", "role", "MAPE_pct", "coverage"} <= set(table.columns)
     roles = set(table["role"])
     assert {"baseline", "local-only", "federated-global", "centralised (pooled)"} <= roles
-    assert table["dataset"].str.contains("LV Feeder").all()
+    # The CSV carries BOTH per-feeder and aggregate rows.
+    assert (table["feeder"] == "ALL (aggregate)").any()
+    assert (table["feeder"] != "ALL (aggregate)").any()
+    # Fixture run (notebook forces FORECAUS_OFFLINE=1): the dataset column must
+    # state the SYNTHETIC source truthfully, never the real UKPN dataset name.
+    assert table["dataset"].str.contains("SYNTHETIC").all()
+    assert not table["dataset"].str.contains("LV Feeder").any()
 
+    # The AGGREGATE MAPEs are the ones narrated in RESULTS.md (per-feeder rows are
+    # CSV-only detail), so check figures/table/prose agree on the aggregate.
     md_numbers = set(re.findall(r"\d+\.\d+", md.read_text()))
-    for v in table["MAPE_pct"].round(2):
-        assert f"{v:.2f}" in md_numbers, f"MAPE {v} not reflected in RESULTS.md"
+    agg = table[table["feeder"] == "ALL (aggregate)"]
+    for v in agg["MAPE_pct"].round(2):
+        assert f"{v:.2f}" in md_numbers, f"aggregate MAPE {v} not reflected in RESULTS.md"

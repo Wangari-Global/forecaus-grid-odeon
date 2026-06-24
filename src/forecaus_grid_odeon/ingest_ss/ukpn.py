@@ -118,6 +118,19 @@ def available_fixture_keys() -> list[str]:
     return sorted(p.stem for p in _fixture_dir().glob("*.parquet"))
 
 
+def cached_feeder_keys() -> list[str]:
+    """Keys of every REAL per-feeder parquet under ``data/raw/ss/`` (from
+    ``make ingest-ss-real``). Empty if no real data has been ingested.
+
+    Fixture keys are excluded: an offline ``make ingest-ss`` caches the synthetic
+    stand-in into ``data/raw/ss/`` under the committed fixture keys, and that must
+    NEVER be counted as real data (it would silently pollute the real benchmark).
+    Real UKPN feeder keys never collide with the committed fixture keys.
+    """
+    fixtures = set(available_fixture_keys())
+    return sorted(p.stem for p in _raw_dir().glob("*.parquet") if p.stem not in fixtures)
+
+
 # ------------------------------------------------------------------- download --
 def _download_feeder(
     substation_id: str, lv_feeder_id, start: str, end: str

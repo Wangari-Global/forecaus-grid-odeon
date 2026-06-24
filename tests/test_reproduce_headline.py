@@ -61,7 +61,7 @@ def test_guard_flags_injected_hallucination(head):
 
 def test_results_md_written_and_traceable(head, tmp_path):
     mod = _load_script()
-    path = mod.write_results_md(head["narrative"], tmp_path / "RESULTS.md")
+    path = mod.write_results_md(head["narrative"], head["disclaimer"], tmp_path / "RESULTS.md")
     assert path.exists()
     body = path.read_text()
     assert f"{head['computed']['fl_global']:.2f}" in body

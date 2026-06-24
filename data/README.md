@@ -1,11 +1,49 @@
 # Data
 
+## Real LV-feeder ingest — `make ingest-ss-real` (REAL, measured)
+
+`make ingest-ss-real` (→ `forecaus_grid_odeon.ingest_ss.real`) tries the
+documented sources **in order** and uses the first that yields record-level
+per-feeder demand without a manual login, writing one parquet per feeder to
+`raw/ss/<feeder_key>.parquet` on the same `load_kw` contract as
+`ingest_ss.ukpn` (UTC `time` index, single `load_kw` column). **It never
+relabels the synthetic fixtures as real** — if every source fails it stops and
+prints exactly what is missing.
+
+**Source used (last run): UK Power Networks — "Smart Meter Consumption - LV
+Feeder"** (`ukpowernetworks.opendatasoft.com`), via the opendatasoft Explore API
+v2.1 records/exports with a **registered API key** (read from `UKPN_API_KEY`, or
+a local token file; the key is never committed). Real aggregated smart-meter
+active-energy import per secondary-substation × LV feeder, half-hourly;
+Wh/half-hour → average kW (÷500, `ukpn.WH_PER_HH_TO_KW`).
+
+- **Kind.** REAL — measured aggregated smart-meter data (not synthetic, not simulated).
+- **Feeders.** 8 LV feeders (EPN + LPN substations), 1440 half-hours each, 0 % missing.
+- **Span.** 2026-04-01 00:00 … 2026-04-30 23:30 UTC (~4.3 weeks).
+- **Licence.** Creative Commons Attribution 4.0 (CC BY 4.0) — attribute "UK Power Networks".
+- **Access date.** 2026-06-24.
+
+**Sources tried, in order:**
+1. **SP Energy Networks `lv_monitor`** (keyless opendatasoft) — *rejected*: only
+   MONTHLY transformer capacity-utilisation aggregates (`year_month`,
+   `*_capacity_utilisation`, `power_factor`) — no per-feeder `load_kw` series.
+2. **UKPN "Smart Meter Consumption - LV Feeder"** — ✅ used (registered API key).
+3. **Low Carbon London** — not reached (needs a bulk London-Datastore download +
+   an external household→LV-feeder mapping; not a keyless record API).
+4. **NREL SMART-DS** — not reached (SIMULATED; opt-in `FORECAUS_ALLOW_SIMULATED=1`,
+   output would be labelled SIMULATED).
+
+`raw/ss/` is git-ignored — **real data is never committed**; only the synthetic
+offline fixtures under `tests/fixtures/ss/` are tracked (see below).
+
 ## Secondary-substation / LV-feeder demand (`raw/ss/`)
 
 **Source.** UK Power Networks Open Data — dataset
 [`ukpn-smart-meter-consumption-lv-feeder`](https://ukpowernetworks.opendatasoft.com/explore/dataset/ukpn-smart-meter-consumption-lv-feeder/)
-("Smart Meter Consumption - LV Feeder"), served by the keyless opendatasoft
-HTTP/CSV API at `https://ukpowernetworks.opendatasoft.com/api/explore/v2.1`.
+("Smart Meter Consumption - LV Feeder"), served by the opendatasoft Explore API
+at `https://ukpowernetworks.opendatasoft.com/api/explore/v2.1` (dataset
+metadata is public; **record-level access needs a free registered API key** —
+see "Real LV-feeder ingest" above).
 
 **What it is.** Half-hourly aggregated smart-meter consumption per
 *secondary substation × LV feeder* (Active + Reactive Energy Import) plus the

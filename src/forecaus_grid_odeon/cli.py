@@ -68,6 +68,18 @@ def _cmd_ingest_ss():
     print(f"[ingest-ss] wrote {len(out)} per-feeder parquet files under data/raw/ss/")
 
 
+def _cmd_ingest_ss_real():
+    """REAL SS/LV-feeder demand -> data/raw/ss (tries documented sources in order).
+
+    Writes per-feeder parquet on the load_kw contract, prints a sanity report, and
+    STOPs (printing exactly what is needed) if no source yields real record-level
+    data — fixtures are never relabelled as real.
+    """
+    from .ingest_ss.real import ingest_ss_real
+
+    ingest_ss_real()
+
+
 def _cmd_forecast_ss():
     """Day-ahead SS-level benchmark: structured GAM vs seasonal_naive vs SARIMAX."""
     import warnings
@@ -257,6 +269,7 @@ def _cmd_flex_run():
 _COMMANDS = {
     "ingest": _cmd_ingest, "forecast": _cmd_forecast, "causal": _cmd_causal,
     "benchmark": _cmd_benchmark, "ingest-ss": _cmd_ingest_ss,
+    "ingest-ss-real": _cmd_ingest_ss_real,
     "forecast-ss": _cmd_forecast_ss, "causal-ss": _cmd_causal_ss,
     "flex": _cmd_flex, "flex-run": _cmd_flex_run,
     "fl-demo": _cmd_fl_demo, "fl-train": _cmd_fl_train,

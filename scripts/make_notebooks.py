@@ -42,11 +42,13 @@ def _nb(cells):
 NB01 = _nb([
     new_markdown_cell(
         "# 01 · SS day-ahead forecast benchmark\n\n"
+        "> ⚠️ **SYNTHETIC data** — runs on a schema-accurate LV stand-in "
+        "(`tests/fixtures/ss`), illustrative only, **not real measurements**.\n\n"
         "Day-ahead (one-day-ahead) load forecasting at LV/secondary-substation level on the\n"
-        "**UK Power Networks 'Smart Meter Consumption - LV Feeder'** public dataset "
-        "(committed offline sample). Compares the interpretable **structured GAM** against the\n"
-        "**seasonal-naive** and **SARIMAX** baselines via rolling-origin, reporting MAPE and\n"
-        "conformal interval coverage. Runs fully offline."
+        "**synthetic LV stand-in** (committed offline fixtures; the real UKPN 'Smart Meter "
+        "Consumption - LV Feeder' dataset is wired in but gated). Compares the interpretable "
+        "**structured GAM** against the **seasonal-naive** and **SARIMAX** baselines via "
+        "rolling-origin, reporting MAPE and conformal interval coverage. Runs fully offline."
     ),
     new_code_cell(HEADER),
     new_code_cell(
@@ -127,29 +129,14 @@ NB03 = _nb([
         "print(head['table'])"
     ),
     new_code_cell(
-        "# ODEON benchmark table: baselines (rolling-origin) + the structured model under the\n"
-        "# federation protocol (local / federated-global / centralised). Protocol column keeps\n"
-        "# the two evaluation harnesses honestly distinct.\n"
-        "ROLL = 'day-ahead rolling-origin'\n"
-        "HOLD = 'last-day holdout, per-node'\n"
-        "rows = [\n"
-        "    {'model': 'seasonal_naive', 'role': 'baseline', 'protocol': ROLL,\n"
-        "     'MAPE_pct': float(agg_ss.loc['seasonal_naive', 'MAPE']), 'coverage': float(agg_ss.loc['seasonal_naive', 'coverage'])},\n"
-        "    {'model': 'sarimax', 'role': 'baseline', 'protocol': ROLL,\n"
-        "     'MAPE_pct': float(agg_ss.loc['sarimax', 'MAPE']), 'coverage': float(agg_ss.loc['sarimax', 'coverage'])},\n"
-        "    {'model': 'structured_gam', 'role': 'interpretable (non-federated)', 'protocol': ROLL,\n"
-        "     'MAPE_pct': float(agg_ss.loc['structured_gam', 'MAPE']), 'coverage': float(agg_ss.loc['structured_gam', 'coverage'])},\n"
-        "    {'model': 'structured_gam', 'role': 'local-only', 'protocol': HOLD, 'MAPE_pct': c['fl_local'], 'coverage': np.nan},\n"
-        "    {'model': 'structured_gam', 'role': 'federated-global', 'protocol': HOLD, 'MAPE_pct': c['fl_global'], 'coverage': np.nan},\n"
-        "    {'model': 'structured_gam', 'role': 'centralised (pooled)', 'protocol': HOLD, 'MAPE_pct': c['fl_central'], 'coverage': np.nan},\n"
-        "]\n"
-        "odeon = pd.DataFrame(rows)\n"
-        "odeon['MAPE_pct'] = odeon['MAPE_pct'].round(2)\n"
-        "odeon['coverage'] = odeon['coverage'].round(3)\n"
-        "odeon.insert(0, 'dataset', 'UKPN Smart Meter Consumption - LV Feeder')\n"
+        "# ODEON benchmark table: per-feeder + aggregate baselines (rolling-origin) and the\n"
+        "# structured model under the federation protocol. Built via rh.build_benchmark_df so\n"
+        "# the `dataset` column states the TRUE source in ONE place (SYNTHETIC offline; the\n"
+        "# real UKPN name only on a real-data run).\n"
+        "odeon = rh.build_benchmark_df(head)\n"
         "odeon.to_csv(FIG / 'odeon_benchmark.csv', index=False)\n"
         "print(odeon.to_string(index=False))\n"
-        "print('\\nsaved', FIG / 'odeon_benchmark.csv')"
+        "print('\\nsaved', FIG / 'odeon_benchmark.csv  (dataset =', repr(odeon['dataset'].iloc[0]) + ')')"
     ),
     new_code_cell(
         "# Cold start + convergence.\n"
@@ -167,7 +154,7 @@ NB03 = _nb([
         "# Regenerate RESULTS.md from the SAME computed values and check every cited number\n"
         "# traces (deterministic guard) -> the CSV, the figures and RESULTS.md agree.\n"
         "from forecaus_grid_odeon.validation import validate_claims\n"
-        "rh.write_results_md(head['narrative'], REPO / 'notebooks' / 'figures' / 'RESULTS.md')\n"
+        "rh.write_results_md(head['narrative'], head['disclaimer'], REPO / 'notebooks' / 'figures' / 'RESULTS.md')\n"
         "res = validate_claims(head['narrative'], head['computed'])\n"
         "assert res['ok'], res['unsupported']\n"
         "print('RESULTS.md regenerated; guard PASS -', res['n_numbers'], 'numbers all supported')"

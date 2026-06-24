@@ -28,7 +28,13 @@ import os
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
            "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ.setdefault(_v, "1")
-os.environ.setdefault("FORECAUS_OFFLINE", "1")           # no network; use fixtures
+
+# Use REAL feeder data when it has been ingested (data/raw/ss); otherwise force
+# offline so the benchmark still runs reproducibly on the committed fixtures.
+from pathlib import Path as _Path
+
+if not any((_Path(__file__).resolve().parents[1] / "data" / "raw" / "ss").glob("*.parquet")):
+    os.environ.setdefault("FORECAUS_OFFLINE", "1")        # no real data -> fixtures, no network
 
 import json
 import pickle
@@ -85,8 +91,12 @@ def _median_ms(fn, repeats: int) -> float:
 
 
 def main() -> None:
+    from forecaus_grid_odeon import config
+
     frame, features, target, Model = _build_frame()
     n_obs = len(frame)
+    data_kind = "fixtures (SYNTHETIC)" if config.OFFLINE else "REAL (data/raw/ss)"
+    data_span = f"{frame.index.min():%Y-%m-%d}..{frame.index.max():%Y-%m-%d}"
 
     # --- train once, capture artifact + workload memory ---
     tracemalloc.start()
@@ -124,6 +134,8 @@ def main() -> None:
     NA = ""
     rows = [
         ("device", PI4_ENVELOPE["device"], "", NA, "info"),
+        ("data_kind", data_kind, "", NA, "info"),
+        ("data_span", data_span, "", NA, "info"),
         ("cores_used", PI4_ENVELOPE["cores_used"], "cores", NA, "info"),
         ("assumed_pi4_slowdown_vs_host", slow, "x", NA, "info"),
         ("n_features", len(features), "count", NA, "info"),
@@ -150,6 +162,7 @@ def main() -> None:
     # --- report ---
     print(f"Edge-deployability benchmark — interpretable forecaster (Slice 3)")
     print(f"  envelope : {PI4_ENVELOPE['device']}")
+    print(f"  data     : {data_kind}, {data_span}, {n_obs} rows, {len(features)} features")
     print(f"  host     : {platform.machine()} / {platform.python_version()}, BLAS threads capped to 1")
     print(table.to_string(index=False))
 

@@ -43,18 +43,56 @@ SS_TARGET = config.SS_TARGET
 
 # --------------------------------------------------------- SS / federated layer --
 def ss_feeders() -> list[str]:
-    """Feeder keys available for ingestion (>1 => federation is possible).
+    """Feeder keys to model (>1 => federation is possible).
 
-    Offline: the committed sample feeders. Online: live-discovered feeders,
-    falling back to the default set.
+    Precedence: offline -> committed fixtures; else REAL per-feeder caches under
+    ``data/raw/ss/`` (from ``make ingest-ss-real``) if present; else live
+    discovery, falling back to the default set.
     """
     from .ingest_ss import ukpn
 
     if config.OFFLINE:
         keys = ukpn.available_fixture_keys()
     else:
-        keys = [ukpn.feeder_key(s, f) for s, f in ukpn.discover_feeders()]
+        keys = ukpn.cached_feeder_keys()                       # real data takes priority
+        if not keys:
+            keys = [ukpn.feeder_key(s, f) for s, f in ukpn.discover_feeders()]
     return keys or [ukpn.feeder_key(s, f) for s, f in ukpn.DEFAULT_FEEDERS]
+
+
+def using_real_ss_data() -> bool:
+    """True iff real LV-feeder caches exist and we are not forced offline."""
+    from .ingest_ss import ukpn
+    return (not config.OFFLINE) and bool(ukpn.cached_feeder_keys())
+
+
+def _ss_weather(index) -> Optional[pd.DataFrame]:
+    """Weather over the feeder's ACTUAL span (not the national 2024-25 window),
+    fetched directly from Open-Meteo so the real April-2026 SS data gets a valid
+    join. Returns None offline / on any failure (the frame then builds without it).
+    """
+    if config.OFFLINE or index is None or len(index) == 0:
+        return None
+    try:
+        import requests
+
+        from .ingest.weather import _ARCHIVE_URL, _COORDS, _HOURLY_VARS
+        lat, lon = _COORDS.get(config.SS_REGION, _COORDS["FR"])
+        params = {
+            "latitude": lat, "longitude": lon,
+            "start_date": str(pd.Timestamp(index.min()).date()),
+            "end_date": str(pd.Timestamp(index.max()).date()),
+            "hourly": ",".join(_HOURLY_VARS), "timezone": "UTC",
+        }
+        hourly = requests.get(_ARCHIVE_URL, params=params, timeout=90).json().get("hourly", {})
+        if not hourly.get("time"):
+            return None
+        wx = pd.DataFrame(hourly).set_index("time")
+        wx.index = pd.to_datetime(wx.index, utc=True)
+        return wx.rename(columns={"temperature_2m": "temp_c", "wind_speed_10m": "wind_ms",
+                                  "shortwave_radiation": "irradiance_wm2"})
+    except Exception:  # noqa: BLE001 - weather is optional; never block the frame
+        return None
 
 
 def load_ss_frame(
@@ -69,18 +107,12 @@ def load_ss_frame(
     fully available over the load index, adds optional ``topology`` features,
     and engineers length-adapted calendar + lag features. Aligned and NA-free.
     """
-    from .ingest import weather as weather_mod
     from .ingest_ss import ukpn
 
     substation_id, lv_feeder_id = ukpn._key_to_feeder(feeder_id)
     series = ukpn.fetch_feeder(substation_id, lv_feeder_id)[SS_TARGET]
 
-    wx = None
-    if with_weather:
-        try:
-            wx = weather_mod.fetch_weather(region=config.SS_REGION, index=series.index)
-        except Exception:  # noqa: BLE001 - weather is optional; never block the frame
-            wx = None
+    wx = _ss_weather(series.index) if with_weather else None
 
     frame = build_ss_frame(
         series, weather=wx, topology=topology, country=config.SS_COUNTRY,

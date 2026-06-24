@@ -20,14 +20,37 @@ from .backtest import rolling_origin
 METRIC_COLS = ["MAE", "RMSE", "MAPE", "coverage", "n_folds"]
 
 
+def leaksafe_features(exog: list[str], target: str, horizon: int) -> list[str]:
+    """Features KNOWN at forecast time for an ``horizon``-step-ahead forecast.
+
+    Drops the target's intra-horizon lags (``lag_k`` with ``k < horizon``) and
+    ALL rolling windows (whose windows slide into the forecast horizon) — both
+    would leak future load into a day-ahead forecast. Keeps calendar + weather +
+    the >= horizon lags (24 h / 168 h), i.e. the *proper* day-ahead lags.
+    """
+    safe = []
+    for c in exog:
+        if c.startswith(f"{target}_roll"):
+            continue
+        if c.startswith(f"{target}_lag_"):
+            try:
+                if int(c.rsplit("_", 1)[1]) < horizon:
+                    continue
+            except ValueError:
+                continue
+        safe.append(c)
+    return safe
+
+
 def _panel(exog: list[str], target: str, ppd: int, alpha: float) -> dict:
     """Day-ahead model panel: structured GAM + the two required baselines.
 
-    SARIMAX models the autoregression itself, so it gets only the genuinely
-    *exogenous* regressors (calendar / weather / topology) — feeding it the
-    target's own lag/rolling columns would be collinear and destabilises the
-    MLE on short windows. The structured GAM, by contrast, uses the full
-    feature set (the lags are its autoregressive terms).
+    All three are **leak-free** for an ``ppd``-step-ahead forecast:
+    seasonal-naive repeats the last day; SARIMAX gets only exogenous calendar/
+    weather (its AR is on past target); and the structured GAM uses the
+    known-at-forecast-time feature set (:func:`leaksafe_features`) — calendar +
+    weather + the 24 h / 168 h lags, NOT the intra-horizon lag_1 / rolling stats.
+    Light ridge tuning (l2=10) over those ~13 features.
     """
     sarimax_exog = [
         c for c in exog
@@ -35,14 +58,15 @@ def _panel(exog: list[str], target: str, ppd: int, alpha: float) -> dict:
     ]
     return {
         "seasonal_naive": make_seasonal_naive(season=ppd, alpha=alpha),
-        # Seasonal "airline" model: a seasonal difference at the daily period is
-        # the right day-ahead config and stays stable on short windows (a plain
-        # AR(1) estimates an explosive root here and diverges over the horizon).
+        # Non-seasonal (1,1,1) with calendar/weather exog: the calendar carries
+        # the daily/weekly shape, and this is ~50x faster than a period-ppd
+        # seasonal SARIMA on multi-week half-hourly history (which is intractable).
         "sarimax": make_sarimax(
-            exog_cols=sarimax_exog, order=(0, 1, 1),
-            seasonal_order=(0, 1, 1, ppd), alpha=alpha,
+            exog_cols=sarimax_exog, order=(1, 1, 1),
+            seasonal_order=(0, 0, 0, 0), alpha=alpha,
         ),
-        "structured_gam": make_structured(features=exog, alpha=alpha),
+        "structured_gam": make_structured(
+            features=leaksafe_features(exog, target, ppd), l2=10.0, alpha=alpha),
     }
 
 
@@ -77,7 +101,8 @@ def run_ss_benchmark(
         )
         per_feeder[fid] = table
         if params is None:
-            fitted = StructuredForecaster(exog).fit(frame, target)
+            fitted = StructuredForecaster(
+                leaksafe_features(exog, target, ppd), l2=10.0).fit(frame, target)
             params = (fid, fitted.parameters())
 
     if not per_feeder:

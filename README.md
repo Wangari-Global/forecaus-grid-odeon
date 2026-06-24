@@ -1,6 +1,6 @@
 # forecaus-grid-odeon — causal-augmented, transparent SS-level load forecasting (ODEON Challenge 4)
 
-[![CI](https://github.com/OWNER/forecaus-grid-odeon/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/forecaus-grid-odeon/actions/workflows/ci.yml)
+[![CI](https://github.com/Wangari-Global/forecaus-grid-odeon/actions/workflows/ci.yml/badge.svg)](https://github.com/Wangari-Global/forecaus-grid-odeon/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 Day-ahead load forecasting at **secondary-substation (SS) / LV-feeder** level —
@@ -18,46 +18,68 @@ narrated number is checked back against a computed value.
 
 ## Results
 
+> ℹ️ **REAL data.** Headline numbers below are from **real UK Power Networks
+> "Smart Meter Consumption – LV Feeder"** half-hourly demand (8 LV feeders, one
+> recent month; CC BY 4.0) — ingest with `make ingest-ss-real`, provenance (span,
+> licence, access date) in [`data/README.md`](data/README.md). The committed
+> offline fixtures remain a clearly-labelled synthetic stand-in for tests/CI.
+
 _Headline numbers below are regenerated from cached data by
 `scripts/reproduce_headline.py` and pinned in
 [`notebooks/figures/RESULTS.md`](notebooks/figures/RESULTS.md); the deterministic
 guard (`validation/`) verifies every figure traces to a computed value._
 
-Across **5 secondary-substation feeders** (UK Power Networks "Smart Meter
-Consumption – LV Feeder", offline sample), the **day-ahead** forecast benchmark
-gives an aggregate MAPE of **6.51%** (seasonal-naive), **11.01%** (SARIMAX) and
-**11.63%** (interpretable structured model); best aggregate MAPE **6.51%**.
+Across **8 secondary-substation feeders** (real UKPN LV-feeder demand), the
+**day-ahead** forecast benchmark gives an aggregate MAPE of **36.18%**
+(seasonal-naive), **40.92%** (SARIMAX) and **30.51%** (interpretable structured
+model). The **structured model beats seasonal-naive** (30.51% vs 36.18%) and is
+the best of the three; it stays **above the <5% target (gap 25.51 pp)** because a
+single LV feeder (≈tens of homes, half-hourly) is far noisier than the aggregated
+load that target was set for — see the honesty note below.
 
-Federating the structured model across **5 substation nodes** over **12 rounds**
-lifts the aggregate test MAPE from **14.43%** (local-only) to **8.59%**
-(federated-global), approaching the **6.41%** of a centralised model trained on
+Federating the structured model across **8 substation nodes** over **12 rounds**
+lifts the aggregate test MAPE from **30.79%** (local-only) to **23.32%**
+(federated-global), approaching the **22.99%** of a centralised model trained on
 pooled data — **without any raw data leaving a node**. The thin-history feeder
-(only **24** training rows) improves from **25.66%** local to **10.34%** under
-federation, a cold-start gain of **15.32 pp**.
+(only **24** training rows) improves from **111.02%** local to **49.24%** under
+federation, a cold-start gain of **61.78 pp**.
 
 ### ODEON benchmark table — `notebooks/figures/odeon_benchmark.csv`
 
-Dataset: *UKPN Smart Meter Consumption – LV Feeder*. MAPE in %, coverage = share
-of actuals inside the 90% conformal interval (point-only for the FL rows).
+Dataset: *real UK Power Networks "Smart Meter Consumption – LV Feeder"* (CC BY
+4.0; per-feeder rows + span/access date in the CSV and `data/README.md`). MAPE in
+%, coverage = share of actuals inside the 90% conformal interval (point-only for
+the FL rows). Aggregate over 8 feeders:
 
 | model | role | protocol | MAPE | coverage |
 |---|---|---|---:|---:|
-| seasonal_naive | baseline | day-ahead rolling-origin | 6.51 | 0.921 |
-| sarimax | baseline | day-ahead rolling-origin | 11.01 | 0.933 |
-| structured_gam | interpretable (non-federated) | day-ahead rolling-origin | 11.63 | 0.854 |
-| structured_gam | local-only | last-day holdout, per-node | 14.43 | — |
-| structured_gam | federated-global | last-day holdout, per-node | 8.59 | — |
-| structured_gam | centralised (pooled) | last-day holdout, per-node | 6.41 | — |
+| seasonal_naive | baseline | day-ahead rolling-origin | 36.18 | 0.898 |
+| sarimax | baseline | day-ahead rolling-origin | 40.92 | 0.902 |
+| structured_gam | interpretable (non-federated) | day-ahead rolling-origin | 30.51 | 0.904 |
+| structured_gam | local-only | last-day holdout, per-node | 30.79 | — |
+| structured_gam | federated-global | last-day holdout, per-node | 23.32 | — |
+| structured_gam | centralised (pooled) | last-day holdout, per-node | 22.99 | — |
 
 The two `protocol` groups use different evaluation harnesses (rolling-origin
 day-ahead vs per-node last-day holdout) and are reported separately rather than
 mixed. Figures: `notebooks/figures/` (forecast benchmark, causal DAG + break,
-federated convergence, forecast→flex schedule).
+federated convergence, forecast→flex schedule, edge-deployability). The
+federated-convergence, forecast→flex and edge figures (+ `edge_fit.csv`) are
+regenerated from the real data by `make figures-real`
+(`scripts/regenerate_real_figures.py`); federation cuts aggregate test MAPE from
+**30.79%** (local-only) to **23.32%** (federated-global, approaching the
+**22.99%** centralised bound), and the interpretable model fits the documented
+Raspberry-Pi-4 edge envelope (≈0.6 KiB artifact, sub-ms inference).
 
-> **Honesty note.** On this tiny offline sample the seasonal-naive baseline is
-> strong (near-periodic days), so the interpretable model does not "win" on
-> MAPE here; its value is transparency + federation + the cold-start gain, which
-> grow with real history. Numbers are reported as computed, not cherry-picked.
+> **Honesty note.** On real per-feeder half-hourly demand the structured model
+> beats seasonal-naive (30.51% vs 36.18%) but stays well above the <5% MAPE
+> target — that target is an *aggregated*-load figure, and a single LV feeder is
+> far spikier (small denominators inflate MAPE), so <5% is not attainable per
+> feeder. The model's value is transparency + calibrated intervals + federation
+> (which cuts aggregate MAPE from 30.79% to 23.32%) + the cold-start gain. The
+> weather join and the 24 h / 168 h lags both help, and the leaky intra-horizon
+> lag_1 / rolling features were removed so the day-ahead numbers are honest.
+> Numbers are reported as computed, not cherry-picked.
 
 ## One-command reproduction
 
