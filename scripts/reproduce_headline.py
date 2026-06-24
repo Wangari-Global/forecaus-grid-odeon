@@ -60,11 +60,24 @@ def compute_headline(rounds: int = 12) -> dict:
     from forecaus_grid_odeon.pipeline import using_real_ss_data
 
     is_real = bool(using_real_ss_data())
-
-    # --- 1. day-ahead SS forecast benchmark (per-feeder + aggregate) ---
-    bench = run_ss_benchmark()
-    agg = bench["aggregate"]
     r2 = lambda x: round(float(x), 2)
+    r3 = lambda x: round(float(x), 3)
+
+    # --- 1a. SUBSTATION-TOTAL benchmark (the Challenge-4 target = HEADLINE) ---
+    sbench = run_ss_benchmark(level="substation")
+    sagg = sbench["aggregate"]
+    s_naive = r2(sagg.loc["seasonal_naive", "MAPE"])
+    s_sarimax = r2(sagg.loc["sarimax", "MAPE"])
+    s_structured = r2(sagg.loc["structured_gam", "MAPE"])
+    s_best = r2(min(s_naive, s_sarimax, s_structured))
+    s_coverage = r3(sagg.loc["structured_gam", "coverage"])
+    n_substations = int(len(sbench["per_feeder"]))
+    s_beats = s_structured <= s_naive
+    s_gap = r2(s_structured - MAPE_TARGET)
+
+    # --- 1b. PER-FEEDER benchmark (the harder lower bound) ---
+    bench = run_ss_benchmark(level="feeder")
+    agg = bench["aggregate"]
     mape_naive = r2(agg.loc["seasonal_naive", "MAPE"])
     mape_sarimax = r2(agg.loc["sarimax", "MAPE"])
     mape_structured = r2(agg.loc["structured_gam", "MAPE"])
@@ -73,8 +86,8 @@ def compute_headline(rounds: int = 12) -> dict:
     beats_naive = mape_structured <= mape_naive
     mape_gap = r2(mape_structured - MAPE_TARGET)
 
-    # --- 2. federation across substations ---
-    fl = run_fl_training(rounds=rounds)
+    # --- 2. federation across SUBSTATIONS (SS-total nodes — Challenge-4 target) ---
+    fl = run_fl_training(rounds=rounds, level="substation")
     fa = fl["aggregate"]
     fl_local, fl_global, fl_central = r2(fa["local_MAPE"]), r2(fa["global_MAPE"]), r2(fa["centralised_MAPE"])
     cs = fl["cold_start"]
@@ -84,59 +97,104 @@ def compute_headline(rounds: int = 12) -> dict:
     n_nodes = int(fl["n_nodes"])
     n_rounds = int(len(fl["convergence"]))
 
+    # --- 3. forecast -> flex congestion schedule on the busiest SS-total ---
+    from forecaus_grid_odeon.flex import run_flex
+    flex = run_flex(level="substation")
+    fs, fsp = flex["summary"], flex["summary_point"]
+    flex_limit = r2(flex["binding_limit"])
+    flex_peak = r2(fs["peak_flex_down"])
+    flex_energy = r2(fs["energy_flex_down_kwh"])
+    flex_steps = int(fs["n_breach_down"])
+    flex_energy_point = r2(fsp["energy_flex_down_kwh"])
+
     computed = {
+        # HEADLINE: substation-total (Challenge-4 target)
+        "s_naive": s_naive, "s_sarimax": s_sarimax, "s_structured": s_structured,
+        "s_best": s_best, "s_coverage": s_coverage, "s_gap": s_gap,
+        "n_substations": n_substations,
+        # per-feeder (harder lower bound)
         "mape_naive": mape_naive, "mape_sarimax": mape_sarimax,
         "mape_structured": mape_structured, "mape_best": mape_best,
-        "mape_target": MAPE_TARGET, "mape_gap": mape_gap, "n_feeders": n_feeders,
+        "mape_gap": mape_gap, "n_feeders": n_feeders,
+        "mape_target": MAPE_TARGET,
+        # federation
         "fl_local": fl_local, "fl_global": fl_global, "fl_central": fl_central,
         "cs_local": cs_local, "cs_global": cs_global, "cs_benefit": cs_benefit,
         "cs_n_train": cs_n_train, "n_nodes": n_nodes, "n_rounds": n_rounds,
+        # forecast -> flex (busiest SS-total, illustrative transformer limit)
+        "flex_limit": flex_limit, "flex_peak": flex_peak, "flex_energy": flex_energy,
+        "flex_steps": flex_steps, "flex_energy_point": flex_energy_point,
     }
     return {
         "computed": computed,
         "is_real": is_real,
         "source_label": REAL_LABEL if is_real else SYN_LABEL,
         "disclaimer": REAL_DISCLAIMER if is_real else SYN_DISCLAIMER,
-        "narrative": build_narrative(computed, beats_naive),
+        "narrative": build_narrative(computed, s_beats),
         "table": _table(computed),
-        "ss_aggregate": agg,
+        "ss_aggregate": agg,                 # per-feeder aggregate (notebook back-compat)
         "ss_per_feeder": bench["per_feeder"],
+        "feeder_bench": bench,
+        "agg_bench": sbench,
         "fl_result": fl,
     }
 
 
-def build_narrative(c: dict, beats_naive: bool) -> str:
-    """Prose narrative from computed values (every number traces; honest verdict)."""
-    verdict = "beats" if beats_naive else "does not beat"
+def build_narrative(c: dict, s_beats: bool) -> str:
+    """Prose narrative from computed values (every number traces; honest verdict).
+
+    HEADLINE is the substation-total level (the network-operator target); the
+    per-feeder level is reported as the harder lower bound. (No bare digits in the
+    prose other than computed values, so the deterministic guard stays clean.)"""
+    verdict = "beats" if s_beats else "does not beat"
     return (
-        f"Across {c['n_feeders']} secondary-substation feeders, the day-ahead "
-        f"forecast benchmark gives an aggregate MAPE of {c['mape_naive']:.2f}% for "
-        f"seasonal-naive, {c['mape_sarimax']:.2f}% for SARIMAX and "
-        f"{c['mape_structured']:.2f}% for the interpretable structured model; the "
-        f"best aggregate MAPE is {c['mape_best']:.2f}%. The structured model "
-        f"{verdict} the seasonal-naive baseline ({c['mape_structured']:.2f}% vs "
-        f"{c['mape_naive']:.2f}%); it stays above the <{c['mape_target']:.0f}% "
-        f"target (gap {c['mape_gap']:.2f} pp) because single-feeder half-hourly "
-        f"demand is far noisier than the aggregated load that target was set for.\n\n"
+        f"At the secondary-substation-total level — the granularity the challenge "
+        f"targets — the day-ahead benchmark across {c['n_substations']} substations "
+        f"gives an aggregate MAPE of {c['s_naive']:.2f}% for seasonal-naive, "
+        f"{c['s_sarimax']:.2f}% for SARIMAX and {c['s_structured']:.2f}% for the "
+        f"interpretable structured model, at {c['s_coverage']:.3f} interval "
+        f"coverage. The structured model {verdict} the seasonal-naive baseline "
+        f"({c['s_structured']:.2f}% vs {c['s_naive']:.2f}%). It stays above the "
+        f"<{c['mape_target']:.0f}% target (gap {c['s_gap']:.2f} pp) because these "
+        f"substations roll up only a handful of LV feeders (tens of homes), so they "
+        f"are still far spikier than whole-network load — the level that target was "
+        f"set for; much larger aggregation would be needed to approach it.\n\n"
+        f"At the harder per-feeder level ({c['n_feeders']} feeders, a lower bound) "
+        f"the structured model gives {c['mape_structured']:.2f}% MAPE versus "
+        f"{c['mape_naive']:.2f}% for seasonal-naive and {c['mape_sarimax']:.2f}% for "
+        f"SARIMAX.\n\n"
         f"Federating the structured model across {c['n_nodes']} substation nodes "
-        f"over {c['n_rounds']} rounds moves the aggregate test MAPE from "
-        f"{c['fl_local']:.2f}% (local-only) to {c['fl_global']:.2f}% "
+        f"(one SS-total series each) over {c['n_rounds']} rounds moves the aggregate "
+        f"test MAPE from {c['fl_local']:.2f}% (local-only) to {c['fl_global']:.2f}% "
         f"(federated-global), vs {c['fl_central']:.2f}% for a centralised model "
-        f"trained on pooled data — without any raw data leaving a node. The "
-        f"thin-history feeder (only {c['cs_n_train']} training rows) goes from "
-        f"{c['cs_local']:.2f}% local to {c['cs_global']:.2f}% under federation, a "
-        f"cold-start change of {c['cs_benefit']:.2f} pp."
+        f"trained on pooled data — without any raw data leaving a node (only "
+        f"parameter vectors are exchanged). The thin-history substation (only "
+        f"{c['cs_n_train']} training rows) goes from {c['cs_local']:.2f}% local to "
+        f"{c['cs_global']:.2f}% under federation, a cold-start change of "
+        f"{c['cs_benefit']:.2f} pp.\n\n"
+        f"Turning the SS-total day-ahead interval forecast into congestion relief: "
+        f"on the busiest substation, against an illustrative transformer firm-rating "
+        f"limit of {c['flex_limit']:.2f} kW (a percentile of its own historical "
+        f"load, pending the pilot's real rating), the schedule sizes "
+        f"{c['flex_energy']:.2f} kWh of risk-adjusted down-flex (peak "
+        f"{c['flex_peak']:.2f} kW) across {c['flex_steps']} half-hours — versus "
+        f"{c['flex_energy_point']:.2f} kWh sized against the point forecast alone, "
+        f"the headroom the prediction interval buys."
     )
 
 
 def _table(c: dict) -> str:
     lines = [
-        "SS day-ahead forecast — aggregate MAPE [%]",
+        f"HEADLINE — substation-total day-ahead MAPE [%]  (over {c['n_substations']} substations, Challenge-4 target)",
+        f"  seasonal_naive : {c['s_naive']:.2f}",
+        f"  sarimax        : {c['s_sarimax']:.2f}",
+        f"  structured_gam : {c['s_structured']:.2f}   "
+        f"(beats naive: {c['s_structured'] <= c['s_naive']}; coverage {c['s_coverage']:.3f}; gap to <5%: {c['s_gap']:.2f} pp)",
+        "",
+        f"per-feeder day-ahead MAPE [%]  (over {c['n_feeders']} feeders, harder lower bound)",
         f"  seasonal_naive : {c['mape_naive']:.2f}",
         f"  sarimax        : {c['mape_sarimax']:.2f}",
-        f"  structured_gam : {c['mape_structured']:.2f}   "
-        f"(beats naive: {c['mape_structured'] <= c['mape_naive']}; gap to <5%: {c['mape_gap']:.2f} pp)",
-        f"  best           : {c['mape_best']:.2f}   (over {c['n_feeders']} feeders)",
+        f"  structured_gam : {c['mape_structured']:.2f}",
         "",
         "Federated learning — aggregate test MAPE [%]",
         f"  local-only          : {c['fl_local']:.2f}",
@@ -148,30 +206,41 @@ def _table(c: dict) -> str:
     return "\n".join(lines)
 
 
+SS_LEVEL = "substation-total (Challenge-4 target)"
+FEEDER_LEVEL = "per-feeder (harder case)"
+
+
 def build_benchmark_df(head: dict):
-    """ODEON benchmark table — per-feeder AND aggregate rows. The ``dataset``
-    column states the TRUE source (real UKPN name only on a real run)."""
+    """ODEON benchmark table — BOTH levels, per-unit AND aggregate rows, with
+    MAE/RMSE/MAPE + coverage. The ``level`` column labels substation-total (the
+    Challenge-4 target / headline) vs per-feeder (harder lower bound); the
+    ``dataset`` column states the TRUE source (real UKPN name only on a real run)."""
     import numpy as np
     import pandas as pd
 
-    agg, per, c = head["ss_aggregate"], head["ss_per_feeder"], head["computed"]
+    c = head["computed"]
     ROLL, HOLD = "day-ahead rolling-origin", "last-day holdout, per-node"
     role = {"seasonal_naive": "baseline", "sarimax": "baseline",
             "structured_gam": "interpretable"}
-    rows = []
-    for m in ["seasonal_naive", "sarimax", "structured_gam"]:
-        rows.append({"feeder": "ALL (aggregate)", "model": m, "role": role[m], "protocol": ROLL,
-                     "MAPE_pct": round(float(agg.loc[m, "MAPE"]), 2),
-                     "coverage": round(float(agg.loc[m, "coverage"]), 3)})
-    for fid, t in per.items():
-        for m in ["seasonal_naive", "sarimax", "structured_gam"]:
-            rows.append({"feeder": fid, "model": m, "role": role[m], "protocol": ROLL,
-                         "MAPE_pct": round(float(t.loc[m, "MAPE"]), 2),
-                         "coverage": round(float(t.loc[m, "coverage"]), 3)})
+
+    def _row(level, unit, m, s):
+        return {"level": level, "feeder": unit, "model": m, "role": role[m], "protocol": ROLL,
+                "MAPE_pct": round(float(s["MAPE"]), 2), "MAE_kw": round(float(s["MAE"]), 3),
+                "RMSE_kw": round(float(s["RMSE"]), 3), "coverage": round(float(s["coverage"]), 3)}
+
+    def _level_rows(bench, level):
+        out = [_row(level, "ALL (aggregate)", m, bench["aggregate"].loc[m])
+               for m in ["seasonal_naive", "sarimax", "structured_gam"]]
+        for uid, t in bench["per_feeder"].items():
+            out += [_row(level, uid, m, t.loc[m]) for m in ["seasonal_naive", "sarimax", "structured_gam"]]
+        return out
+
+    rows = _level_rows(head["agg_bench"], SS_LEVEL) + _level_rows(head["feeder_bench"], FEEDER_LEVEL)
     for r, key in [("local-only", "fl_local"), ("federated-global", "fl_global"),
                    ("centralised (pooled)", "fl_central")]:
-        rows.append({"feeder": "ALL (aggregate)", "model": "structured_gam", "role": r,
-                     "protocol": HOLD, "MAPE_pct": c[key], "coverage": np.nan})
+        rows.append({"level": SS_LEVEL, "feeder": "ALL (aggregate)", "model": "structured_gam",
+                     "role": r, "protocol": HOLD, "MAPE_pct": c[key],
+                     "MAE_kw": np.nan, "RMSE_kw": np.nan, "coverage": np.nan})
     df = pd.DataFrame(rows)
     df.insert(0, "dataset", head["source_label"])
     return df

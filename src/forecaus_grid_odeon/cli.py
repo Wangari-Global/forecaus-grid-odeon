@@ -80,6 +80,13 @@ def _cmd_ingest_ss_real():
     ingest_ss_real()
 
 
+def _cmd_aggregate_ss():
+    """Roll per-feeder load_kw up to SS-totals per substation -> data/raw/ss_agg/."""
+    from .ingest_ss.aggregate import write_substation_totals
+
+    write_substation_totals()
+
+
 def _cmd_forecast_ss():
     """Day-ahead SS-level benchmark: structured GAM vs seasonal_naive vs SARIMAX."""
     import warnings
@@ -105,6 +112,28 @@ def _cmd_forecast_ss():
     print(f"  {len(params)} named coefficients")
     for k in list(params)[:8]:
         print(f"    {k:24s}: {params[k]:+.4f}")
+
+
+def _cmd_forecast_ss_agg():
+    """Day-ahead benchmark on the SS-TOTAL series (the Challenge-4 target level):
+    structured GAM vs seasonal_naive vs SARIMAX, per substation + aggregate."""
+    import warnings
+
+    from .eval import format_table, run_ss_benchmark
+
+    warnings.filterwarnings("ignore")
+    print("[forecast-ss-agg] day-ahead SUBSTATION-TOTAL benchmark (Challenge-4 target)")
+    result = run_ss_benchmark(level="substation")
+
+    for sub, table in result["per_feeder"].items():
+        print(f"\n--- substation {sub} ---")
+        print(format_table(table))
+
+    print("\n=== AGGREGATE (mean across substations) — MAE/RMSE/MAPE + coverage ===")
+    print(format_table(result["aggregate"]))
+
+    best = result["aggregate"]["MAPE"].min()
+    print(f"\nbest aggregate SS-total MAPE: {best:.2f}%  (target < 5%)")
 
 
 def _cmd_causal_ss():
@@ -269,8 +298,9 @@ def _cmd_flex_run():
 _COMMANDS = {
     "ingest": _cmd_ingest, "forecast": _cmd_forecast, "causal": _cmd_causal,
     "benchmark": _cmd_benchmark, "ingest-ss": _cmd_ingest_ss,
-    "ingest-ss-real": _cmd_ingest_ss_real,
-    "forecast-ss": _cmd_forecast_ss, "causal-ss": _cmd_causal_ss,
+    "ingest-ss-real": _cmd_ingest_ss_real, "aggregate-ss": _cmd_aggregate_ss,
+    "forecast-ss": _cmd_forecast_ss, "forecast-ss-agg": _cmd_forecast_ss_agg,
+    "causal-ss": _cmd_causal_ss,
     "flex": _cmd_flex, "flex-run": _cmd_flex_run,
     "fl-demo": _cmd_fl_demo, "fl-train": _cmd_fl_train,
 }

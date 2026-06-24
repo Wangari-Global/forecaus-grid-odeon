@@ -30,6 +30,15 @@ SS_REGION = "GB"            # weather region (representative point, see ingest.w
 # (chronological) rows, or an explicit UTC date string. Used by ss_train_test_split.
 SS_SPLIT = 0.75
 
+# SS LV-feeder REAL-ingest history window (UTC). None -> auto-discover the longest
+# contiguous span the dataset publishes. Override (here or via env) to pin a
+# window. Target is >= 6 months of half-hourly data where the dataset offers it
+# (the UKPN opendatasoft preview is currently capped, see data/README.md).
+SS_INGEST_START = os.environ.get("SS_INGEST_START") or None
+SS_INGEST_END = os.environ.get("SS_INGEST_END") or None
+SS_MAX_MISSING = 0.05           # drop a feeder if >5% of its half-hourly slots are missing
+SS_TARGET_HISTORY_DAYS = 180    # >= 6 months target (reported; honest gap if short)
+
 # Force the offline sample seed (skip all network/API). Set FORECAUS_OFFLINE=1
 # for fully reproducible, network-free ingestion (used by the test-suite).
 OFFLINE = os.environ.get("FORECAUS_OFFLINE", "").lower() in ("1", "true", "yes")

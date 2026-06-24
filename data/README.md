@@ -18,8 +18,18 @@ active-energy import per secondary-substation × LV feeder, half-hourly;
 Wh/half-hour → average kW (÷500, `ukpn.WH_PER_HH_TO_KW`).
 
 - **Kind.** REAL — measured aggregated smart-meter data (not synthetic, not simulated).
-- **Feeders.** 8 LV feeders (EPN + LPN substations), 1440 half-hours each, 0 % missing.
-- **Span.** 2026-04-01 00:00 … 2026-04-30 23:30 UTC (~4.3 weeks).
+- **Feeders.** 8 LV feeders across 6 secondary substations (EPN + LPN), 1440
+  half-hours each, 0 % missing (kept: `<` `config.SS_MAX_MISSING` = 5 % gaps).
+- **Span.** 2026-04-01 00:00 … 2026-04-30 23:30 UTC (~4.3 weeks). The download
+  window is `config.SS_INGEST_START/END` (default `None` → auto-discover the
+  **longest contiguous span the dataset publishes**).
+- **History limitation (honest).** The target is ≥ 6 months, but the UKPN
+  opendatasoft preview currently publishes **only ~1 month** of non-null load
+  (April 2026; `records_count` capped at 30 000, all other months empty).
+  Reaching ≥ 6 months needs UKPN's **registered bulk historical export**, which
+  is *not* available through this keyless/API-key path — so the real series stay
+  ~1 month and are **never padded or relabelled**. `make ingest-ss-real` prints a
+  HISTORY NOTE whenever feeders fall short of `config.SS_TARGET_HISTORY_DAYS`.
 - **Licence.** Creative Commons Attribution 4.0 (CC BY 4.0) — attribute "UK Power Networks".
 - **Access date.** 2026-06-24.
 
@@ -35,6 +45,27 @@ Wh/half-hour → average kW (÷500, `ukpn.WH_PER_HH_TO_KW`).
 
 `raw/ss/` is git-ignored — **real data is never committed**; only the synthetic
 offline fixtures under `tests/fixtures/ss/` are tracked (see below).
+
+## Real SS-total aggregation (`raw/ss_agg/`)
+
+`make aggregate-ss` (→ `forecaus_grid_odeon.ingest_ss.aggregate.substation_totals`,
+also run automatically at the end of `make ingest-ss-real`) groups the per-feeder
+`load_kw` series by `secondary_substation_id` and **SUMS** them to a single
+**SS-total** `load_kw` series per substation — same contract (UTC `time` index,
+one `load_kw` column) — one parquet per substation under `raw/ss_agg/`.
+
+- **Rolled up (last run).** **6 secondary substations** from the **8 real feeders**
+  (two substations have 2 feeders each — genuinely summed — the other four are
+  single-feeder pass-throughs), half-hourly, span 2026-04-01 … 2026-04-30 UTC.
+- **Alignment / gap-handling.** Feeders are outer-joined on the union of their
+  timestamps; at each timestamp the SS-total is the SUM of the feeders reporting
+  there, kept only where `>=` `min_feeders` are present (default 1) — timestamps
+  with fewer reporting feeders are **dropped as gaps**, never under-counted.
+- **Span limitation.** Inherits the ~1-month feeder span above (see *History
+  limitation*); not yet the ≥ several months a full historical export would give.
+- `raw/ss_agg/` is git-ignored (real data). The committed **synthetic**
+  SS-aggregate fixtures live under `tests/fixtures/ss_agg/` (3 substations, summed
+  from the synthetic feeder fixtures) for offline aggregation tests/CI.
 
 ## Secondary-substation / LV-feeder demand (`raw/ss/`)
 

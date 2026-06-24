@@ -50,12 +50,26 @@ SPECS = [
 def main() -> None:
     out_dir = ukpn._fixture_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
+    feeders = {}
     for i, (sub, fdr, base, peak) in enumerate(SPECS):
         s = _feeder_series(seed=100 + i, base_kw=base, peak_kw=peak)
         key = ukpn.feeder_key(sub, fdr)
         path = out_dir / f"{key}.parquet"
         s.to_frame().to_parquet(path)
+        feeders[key] = s.to_frame()
         print(f"wrote {path}  ({len(s)} rows, {s.min():.1f}-{s.max():.1f} kW)")
+
+    # SS-aggregate fixtures (SYNTHETIC): SUM the synthetic feeder fixtures per
+    # substation -> one SS-total per substation, for offline aggregation tests/CI.
+    from forecaus_grid_odeon.ingest_ss import aggregate
+
+    agg_dir = aggregate._agg_fixture_dir()
+    agg_dir.mkdir(parents=True, exist_ok=True)
+    for sub, df in aggregate.substation_totals(feeders, min_feeders=1).items():
+        n = sum(1 for k in feeders if aggregate.substation_of(k) == sub)
+        df.to_parquet(agg_dir / f"{sub}.parquet")
+        print(f"wrote {agg_dir / f'{sub}.parquet'}  (SS-total of {n} feeder(s), "
+              f"{df['load_kw'].min():.1f}-{df['load_kw'].max():.1f} kW)")
 
 
 if __name__ == "__main__":
